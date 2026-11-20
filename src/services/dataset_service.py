@@ -303,9 +303,17 @@ class DatasetService:
             stem = source_path.stem
             output_path = datasets_dir / f"prepared_{stem}.jsonl"
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         preview = self.preview_dataset(source_path, num_rows=1)
         fmt = preview.format
+        required_columns = [instruction_col, output_col]
+        if input_col:
+            required_columns.append(input_col)
+        missing_columns = [column for column in required_columns if column not in preview.columns]
+        if missing_columns:
+            raise ValueError(
+                "Selected dataset columns are unavailable: " + ", ".join(missing_columns)
+            )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         def format_alpaca(inst: str, inp: str, out: str) -> str:
             if inp.strip():
