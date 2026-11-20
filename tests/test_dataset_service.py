@@ -148,3 +148,19 @@ def test_arrow_dataset_inspection_preview_and_preparation(tmp_path: Path):
     records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 2
     assert records[0]["output"] == "4"
+
+
+def test_prepare_dataset_rejects_missing_selected_columns(tmp_path: Path):
+    import pytest
+
+    source = tmp_path / "raw.csv"
+    source.write_text("prompt,answer\nQuestion,Response\n", encoding="utf-8")
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="Selected dataset columns are unavailable"):
+        service.prepare_dataset(
+            source,
+            output_path=tmp_path / "prepared.jsonl",
+            instruction_col="missing_prompt",
+            output_col="answer",
+        )
