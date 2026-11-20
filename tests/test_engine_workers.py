@@ -133,5 +133,5 @@ def test_sft_config_reports_unsupported_sequence_length_signature():
         def __init__(self, **kwargs):
             raise TypeError("unsupported sequence length")
 
-    with pytest.raises(RuntimeError, match="accepts neither supported sequence-length"):
+    with pytest.raises(RuntimeError, match="Unable to construct installed TRL SFTConfig"):
         create_sft_config(UnsupportedConfig, {"output_dir": "out"}, 128)
