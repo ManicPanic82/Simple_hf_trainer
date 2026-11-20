@@ -397,7 +397,7 @@ Notes:
 | Heretic can be driven unattended (no prompts) | Verified, with the `DummyOutput` shim in `scripts/run_heretic_unattended.py` |
 | Heretic works unmodified with stdout piped | **Unsupported** — `NoConsoleScreenBufferError` during prompt construction |
 | Heretic with upstream default workload (100 trials, full prompt sets) on 6 GB | Uninvestigated |
-| A GUI-driven Heretic worker inside 6 GB | Uninvestigated (Phase 2 work) |
+| GUI-driven Heretic worker inside 6 GB | Worker implementation is present on the development branch; full GUI-driven acceptance and long-running workload validation remain unverified |
 
 ---
 
