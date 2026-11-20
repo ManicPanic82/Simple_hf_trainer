@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from services.credentials import CredentialStore
 from services.settings_service import (
     MAX_POLL_INTERVAL_MS,
     MIN_POLL_INTERVAL_MS,
@@ -91,12 +92,14 @@ class SettingsDialog(QDialog):
         self,
         settings: AppSettings,
         settings_service: SettingsService,
+        credentials: CredentialStore | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumWidth(760)
         self._settings_service = settings_service
+        self._credentials = credentials
         self._result_settings: AppSettings | None = None
 
         layout = QVBoxLayout(self)
@@ -172,6 +175,40 @@ class SettingsDialog(QDialog):
         poll_row.addStretch(1)
         layout.addLayout(poll_row)
 
+        cred_label = QLabel("Hugging Face Authentication", self)
+        cred_label.setObjectName("SectionLabel")
+        layout.addWidget(cred_label)
+
+        cred_row = QHBoxLayout()
+        cred_row.setSpacing(8)
+        hf_token_label = QLabel("User access token", self)
+        hf_token_label.setObjectName("Muted")
+        hf_token_label.setMinimumWidth(130)
+        cred_row.addWidget(hf_token_label)
+
+        self.token_edit = QLineEdit(self)
+        self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.token_edit.setPlaceholderText("hf_... (stored securely in Windows Credential Manager)")
+        cred_row.addWidget(self.token_edit, 1)
+
+        self.show_token_btn = QPushButton("Show", self)
+        self.show_token_btn.clicked.connect(self._toggle_token_visibility)
+        cred_row.addWidget(self.show_token_btn)
+
+        self.save_token_btn = QPushButton("Store Token", self)
+        self.save_token_btn.clicked.connect(self._save_token)
+        cred_row.addWidget(self.save_token_btn)
+
+        self.clear_token_btn = QPushButton("Clear", self)
+        self.clear_token_btn.clicked.connect(self._clear_token)
+        cred_row.addWidget(self.clear_token_btn)
+
+        self.token_pill = Pill("No token stored", "off", self)
+        cred_row.addWidget(self.token_pill)
+        layout.addLayout(cred_row)
+
+        self._refresh_token_status()
+
         self.status_pill = Pill("", "off", self)
         self.status_pill.setVisible(False)
         layout.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignLeft)
@@ -188,6 +225,49 @@ class SettingsDialog(QDialog):
         cancel.clicked.connect(self.reject)
         self.save_button.clicked.connect(self._save)
         layout.addWidget(buttons)
+
+    def _toggle_token_visibility(self) -> None:
+        if self.token_edit.echoMode() == QLineEdit.EchoMode.Password:
+            self.token_edit.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.show_token_btn.setText("Hide")
+        else:
+            self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            self.show_token_btn.setText("Show")
+
+    def _refresh_token_status(self) -> None:
+        if not self._credentials or not self._credentials.available:
+            self.token_pill.set_state("off", "Credential store unavailable")
+            self.save_token_btn.setEnabled(False)
+            self.clear_token_btn.setEnabled(False)
+            return
+
+        token = self._credentials.get_token()
+        if token:
+            self.token_pill.set_state("ok", "Token stored securely")
+            if not self.token_edit.text():
+                self.token_edit.setPlaceholderText("•••••••••••••••• (saved)")
+        else:
+            self.token_pill.set_state("off", "No token stored")
+
+    def _save_token(self) -> None:
+        if not self._credentials:
+            return
+        token = self.token_edit.text().strip()
+        if token:
+            self._credentials.set_token(token)
+            self.token_edit.clear()
+            self._refresh_token_status()
+            self.status_pill.setVisible(True)
+            self.status_pill.set_state("ok", "Token saved in Windows Credential Manager")
+
+    def _clear_token(self) -> None:
+        if not self._credentials:
+            return
+        self._credentials.delete_token()
+        self.token_edit.clear()
+        self._refresh_token_status()
+        self.status_pill.setVisible(True)
+        self.status_pill.set_state("info", "Token removed from Windows Credential Manager")
 
     # -- result ---------------------------------------------------------
 

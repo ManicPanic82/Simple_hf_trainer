@@ -150,10 +150,31 @@ class MainWindow(QMainWindow):
         self.tabs.setObjectName("MainTabs")
         self.tabs.setDocumentMode(True)
 
-        self.models_tab = ModelsTab(self.state, self.context.storage)
-        self.datasets_tab = DatasetsTab(self.state, self.context.storage)
-        self.training_tab = TrainingTab(self.state, self.context.storage)
-        self.heretic_tab = HereticTab(self.state, self.context.storage)
+        self.models_tab = ModelsTab(
+            self.state,
+            self.context.storage,
+            self.context.model_service,
+        )
+        self.datasets_tab = DatasetsTab(
+            self.state,
+            self.context.storage,
+            self.context.dataset_service,
+        )
+        self.training_tab = TrainingTab(
+            self.state,
+            self.context.storage,
+            self.context.job_manager,
+            self.context.registry,
+            self.context.model_service,
+            self.context.dataset_service,
+        )
+        self.heretic_tab = HereticTab(
+            self.state,
+            self.context.storage,
+            self.context.job_manager,
+            self.context.registry,
+            self.context.model_service,
+        )
 
         for tab, name in zip(
             (self.models_tab, self.datasets_tab, self.training_tab, self.heretic_tab),
@@ -177,12 +198,30 @@ class MainWindow(QMainWindow):
         self.state.notice.connect(self.banner.show_notice)
         self.context.job_manager.gpu_ownership_changed.connect(self.status_strip.set_gpu_owner)
 
+        self.models_tab.use_model_in_training.connect(self._on_use_model_in_training)
+        self.models_tab.use_model_in_heretic.connect(self._on_use_model_in_heretic)
+        self.datasets_tab.use_dataset_in_training.connect(self._on_use_dataset_in_training)
+
+    def _on_use_model_in_training(self, model_ref: str) -> None:
+        self.training_tab.select_model(model_ref)
+        self.tabs.setCurrentIndex(2)
+
+    def _on_use_model_in_heretic(self, model_ref: str) -> None:
+        self.heretic_tab.select_model(model_ref)
+        self.tabs.setCurrentIndex(3)
+
+    def _on_use_dataset_in_training(self, dataset_path: str) -> None:
+        self.training_tab.select_dataset(dataset_path)
+        self.tabs.setCurrentIndex(2)
+
     # -- lifecycle -------------------------------------------------------
 
     def start(self) -> None:
         """Begin background monitoring. Called once the window is shown."""
         self.context.monitor.start()
         self.context.registry.refresh_async()
+        self.models_tab.scan_library()
+        self.datasets_tab.scan_datasets()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         self.context.monitor.stop()
@@ -239,7 +278,12 @@ class MainWindow(QMainWindow):
             tab.refresh()
 
     def open_settings(self) -> None:
-        dialog = SettingsDialog(self.context.settings, self.context.settings_service, self)
+        dialog = SettingsDialog(
+            self.context.settings,
+            self.context.settings_service,
+            credentials=self.context.credentials,
+            parent=self,
+        )
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
             return
         updated = dialog.result_settings()

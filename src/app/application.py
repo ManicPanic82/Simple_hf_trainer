@@ -12,8 +12,10 @@ from app import paths
 from app.logging_setup import configure_logging
 from app.state import AppState
 from services.credentials import CredentialStore, create_credential_store
+from services.dataset_service import DatasetService
 from services.engine_registry import EngineRegistry
 from services.hardware_monitor import HardwareMonitor
+from services.model_service import ModelService
 from services.settings_service import AppSettings, SettingsService
 from services.storage_service import StorageService
 from ui.main_window import APP_VERSION, MainWindow
@@ -35,6 +37,8 @@ class AppContext:
     registry: EngineRegistry
     job_manager: JobManager
     credentials: CredentialStore
+    model_service: ModelService
+    dataset_service: DatasetService
     window: MainWindow | None = None
 
 
@@ -69,6 +73,10 @@ def build_context(
     registry = EngineRegistry(resolved, parent=parent)
     jobs = JobManager(parent=parent)
 
+    credentials = create_credential_store()
+    model_service = ModelService(storage, credentials)
+    dataset_service = DatasetService(storage, credentials)
+
     context = AppContext(
         settings_service=service,
         settings=resolved,
@@ -77,7 +85,9 @@ def build_context(
         monitor=monitor,
         registry=registry,
         job_manager=jobs,
-        credentials=create_credential_store(),
+        credentials=credentials,
+        model_service=model_service,
+        dataset_service=dataset_service,
     )
 
     monitor.snapshot_ready.connect(state.publish_hardware)

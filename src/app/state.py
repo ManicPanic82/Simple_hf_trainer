@@ -29,12 +29,16 @@ class AppState(QObject):
     engines_changed = Signal(object)  # dict[str, EngineStatus]
     job_changed = Signal(object)  # JobSnapshot
     notice = Signal(object)  # Notice
+    models_changed = Signal(object)  # list[LocalModelRecord]
+    datasets_changed = Signal(object)  # list[LocalDatasetRecord]
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.hardware: HardwareSnapshot | None = None
         self.engines: dict[str, object] = {}
         self.job: JobSnapshot | None = None
+        self.models: list[object] = []
+        self.datasets: list[object] = []
 
     def publish_hardware(self, snapshot: HardwareSnapshot) -> None:
         self.hardware = snapshot
@@ -47,6 +51,14 @@ class AppState(QObject):
     def publish_job(self, snapshot: JobSnapshot) -> None:
         self.job = snapshot
         self.job_changed.emit(snapshot)
+
+    def publish_models(self, models: list[object]) -> None:
+        self.models = models
+        self.models_changed.emit(models)
+
+    def publish_datasets(self, datasets: list[object]) -> None:
+        self.datasets = datasets
+        self.datasets_changed.emit(datasets)
 
     def notify(self, level: str, message: str) -> None:
         self.notice.emit(Notice(level=level, message=message))

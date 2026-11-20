@@ -1,21 +1,82 @@
-"""Models tab: Hugging Face discovery and the local model library."""
+"""Models tab: Hugging Face discovery, model downloads, and local model library."""
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QWidget
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QProgressBar,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app.state import AppState
+from services.model_service import HubModelRecord, LocalModelRecord, ModelService
 from services.storage_service import Severity, StorageService
 from ui.components import Card, FieldRow, Pill, StoragePathRow
 from ui.storage_action import open_storage_path
 from ui.tab_page import TabPage
 
 
+class ModelSearchWorker(QThread):
+    """Background worker for searching Hugging Face Hub."""
+
+    results_ready = Signal(list)
+    search_failed = Signal(str)
+
+    def __init__(self, service: ModelService, query: str, parent=None):
+        super().__init__(parent)
+        self.service = service
+        self.query = query
+
+    def run(self):
+        try:
+            records = self.service.search_hub(self.query)
+            self.results_ready.emit(records)
+        except Exception as error:
+            self.search_failed.emit(str(error))
+
+
+class ModelDownloadWorker(QThread):
+    """Background worker for downloading a model snapshot."""
+
+    progress = Signal(float, str)
+    download_finished = Signal(Path)
+    download_failed = Signal(str)
+
+    def __init__(self, service: ModelService, repo_id: str, parent=None):
+        super().__init__(parent)
+        self.service = service
+        self.repo_id = repo_id
+
+    def run(self):
+        try:
+            target = self.service.download_model(
+                self.repo_id,
+                progress_callback=lambda frac, msg: self.progress.emit(frac, msg),
+            )
+            self.download_finished.emit(target)
+        except Exception as error:
+            self.download_failed.emit(str(error))
+
+
 class ModelsTab(TabPage):
+    use_model_in_training = Signal(str)
+    use_model_in_heretic = Signal(str)
+
     def __init__(
         self,
         state: AppState,
         storage: StorageService,
+        model_service: ModelService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(
@@ -26,56 +87,141 @@ class ModelsTab(TabPage):
         )
         self._state = state
         self._storage = storage
+        self._service = model_service or ModelService(storage)
+        self._search_worker: ModelSearchWorker | None = None
+        self._download_worker: ModelDownloadWorker | None = None
+        self._selected_hub_model: HubModelRecord | None = None
+        self._selected_local_model: LocalModelRecord | None = None
+        self._local_models: list[LocalModelRecord] = []
 
+        # --- 1. Hub Search Card ---
         search = Card(
             "Search Hugging Face Hub",
-            "Hub search, model metadata, file listings, and authenticated downloads. "
-            "The access token belongs in Windows Credential Manager, never in settings.",
+            "Discover compatible models on the Hub, inspect their parameters and file sizes, "
+            "and download them directly to your local library.",
         )
-        search.add_header_widget(Pill("Not implemented yet", "warn", search))
-        row = QHBoxLayout()
-        row.setSpacing(8)
+        self.search_status_pill = Pill("Ready", "info", search)
+        search.add_header_widget(self.search_status_pill)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
         self.search_input = QLineEdit(search)
-        self.search_input.setPlaceholderText("Search models — not implemented yet")
-        self.search_input.setEnabled(False)
-        row.addWidget(self.search_input, 1)
+        self.search_input.setPlaceholderText("Search models (e.g. Qwen2.5-0.5B, Llama-3.2-1B, Gemma)...")
+        self.search_input.returnPressed.connect(self._start_search)
+        search_row.addWidget(self.search_input, 1)
+
         self.search_button = QPushButton("Search", search)
-        self.search_button.setEnabled(False)
-        row.addWidget(self.search_button)
-        search.add_layout(row)
-        search.add(
-            FieldRow(
-                "Planned",
-                "Model metadata, file sizes, and 6 GB VRAM compatibility warnings.",
-                caption_width=104,
-            )
-        )
+        self.search_button.clicked.connect(self._start_search)
+        search_row.addWidget(self.search_button)
+        search.add_layout(search_row)
+
+        self.results_table = QTableWidget(0, 4, search)
+        self.results_table.setHorizontalHeaderLabels(["Model ID", "Author", "Downloads", "Likes"])
+        self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.results_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.results_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.results_table.itemSelectionChanged.connect(self._on_hub_model_selected)
+        self.results_table.setMaximumHeight(160)
+        search.add(self.results_table)
+
+        details_box = QVBoxLayout()
+        details_box.setSpacing(6)
+        self.hub_model_row = FieldRow("Selected", "None selected", caption_width=104)
+        self.hub_files_row = FieldRow("Files / Size", "—", caption_width=104)
+        details_box.addWidget(self.hub_model_row)
+        details_box.addWidget(self.hub_files_row)
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(10)
+        self.download_button = QPushButton("Download Model", search)
+        self.download_button.setObjectName("Primary")
+        self.download_button.setEnabled(False)
+        self.download_button.clicked.connect(self._start_download)
+        action_row.addWidget(self.download_button)
+
+        self.download_progress = QProgressBar(search)
+        self.download_progress.setRange(0, 100)
+        self.download_progress.setValue(0)
+        self.download_progress.setVisible(False)
+        action_row.addWidget(self.download_progress, 1)
+
+        self.download_status_label = QLabel("", search)
+        self.download_status_label.setObjectName("Muted")
+        action_row.addWidget(self.download_status_label)
+        details_box.addLayout(action_row)
+
+        search.add_layout(details_box)
         self.add(search)
 
+        # --- 2. Local Library Card ---
         library = Card(
             "Local model library",
-            "Downloaded models, fine-tuned adapters, and Heretic outputs are registered "
-            "here so every workflow can reuse them.",
+            "Downloaded models, fine-tuned LoRA adapters, and Heretic modified models "
+            "ready for training or abliteration.",
         )
-        library.add_header_widget(Pill("Not implemented yet", "warn", library))
+        self.library_pill = Pill("0 models", "off", library)
+        library.add_header_widget(self.library_pill)
+
         self.models_path = StoragePathRow("models_dir", "Models folder", library)
         self.models_path.open_requested.connect(self._open_storage)
         library.add(self.models_path)
-        self.library_state = FieldRow("Library scan", "Not implemented yet", caption_width=104)
-        library.add(self.library_state)
+
+        scan_row = QHBoxLayout()
+        scan_row.setSpacing(8)
+        self.scan_button = QPushButton("Scan Library", library)
+        self.scan_button.clicked.connect(self.scan_library)
+        scan_row.addWidget(self.scan_button)
+        scan_row.addStretch(1)
+        library.add_layout(scan_row)
+
+        self.library_table = QTableWidget(0, 5, library)
+        self.library_table.setHorizontalHeaderLabels(["Name", "Type", "Format", "Size", "6 GB VRAM"])
+        self.library_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.library_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.library_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.library_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.library_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.library_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.library_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.library_table.itemSelectionChanged.connect(self._on_local_model_selected)
+        self.library_table.setMaximumHeight(180)
+        library.add(self.library_table)
+
+        reuse_row = QHBoxLayout()
+        reuse_row.setSpacing(10)
+        self.use_training_btn = QPushButton("Use in Training", library)
+        self.use_training_btn.setEnabled(False)
+        self.use_training_btn.clicked.connect(self._on_use_in_training)
+        reuse_row.addWidget(self.use_training_btn)
+
+        self.use_heretic_btn = QPushButton("Use in Heretic", library)
+        self.use_heretic_btn.setEnabled(False)
+        self.use_heretic_btn.clicked.connect(self._on_use_in_heretic)
+        reuse_row.addWidget(self.use_heretic_btn)
+        reuse_row.addStretch(1)
+        library.add_layout(reuse_row)
+
         self.add(library)
 
+        # --- 3. Format and Compatibility Checks Card ---
         formats = Card(
             "Format and compatibility checks",
-            "Safetensors, PyTorch bin, and GGUF detection, plus explicit warnings when a "
-            "model cannot fit in 6 GB of VRAM.",
+            "Hardware assessment for the reference NVIDIA GeForce GTX 1660 (6 GB VRAM, Compute 7.5).",
         )
-        self.formats_row = FieldRow("Validation", "Not implemented yet", caption_width=104)
-        formats.add(self.formats_row)
+        self.compat_model_row = FieldRow("Model", "None selected", caption_width=120)
+        self.compat_arch_row = FieldRow("Architecture", "—", caption_width=120)
+        self.compat_assessment_row = FieldRow("Assessment", "Select a model above to assess VRAM fit", caption_width=120)
+        formats.add(self.compat_model_row)
+        formats.add(self.compat_arch_row)
+        formats.add(self.compat_assessment_row)
         self.add(formats)
 
         self.finish()
         self.refresh()
+        self.scan_library()
 
     def _open_storage(self, label: str) -> None:
         open_storage_path(self._state, self._storage, label)
@@ -91,3 +237,142 @@ class ModelsTab(TabPage):
             note=note,
             severity="error" if errors else "warn",
         )
+        can_use = validation.ok
+        self.search_button.setEnabled(can_use)
+        self.search_input.setEnabled(can_use)
+
+    # --- Hub search and download ---
+
+    def _start_search(self) -> None:
+        query = self.search_input.text().strip()
+        if not query:
+            return
+        self.search_button.setEnabled(False)
+        self.search_status_pill.set_state("warn", "Searching…")
+        self._search_worker = ModelSearchWorker(self._service, query, self)
+        self._search_worker.results_ready.connect(self._on_search_results)
+        self._search_worker.search_failed.connect(self._on_search_failed)
+        self._search_worker.start()
+
+    def _on_search_results(self, records: list[HubModelRecord]) -> None:
+        self.search_button.setEnabled(True)
+        self.results_table.setRowCount(len(records))
+        self._search_records = records
+        for row, rec in enumerate(records):
+            id_item = QTableWidgetItem(rec.repo_id)
+            id_item.setData(Qt.ItemDataRole.UserRole, rec)
+            self.results_table.setItem(row, 0, id_item)
+            self.results_table.setItem(row, 1, QTableWidgetItem(rec.author))
+            self.results_table.setItem(row, 2, QTableWidgetItem(f"{rec.downloads:,}"))
+            self.results_table.setItem(row, 3, QTableWidgetItem(f"{rec.likes:,}"))
+
+        self.search_status_pill.set_state("ok" if records else "off", f"{len(records)} found")
+
+    def _on_search_failed(self, error: str) -> None:
+        self.search_button.setEnabled(True)
+        self.search_status_pill.set_state("error", "Search error")
+        self._state.notify("error", f"Hub search failed: {error}")
+
+    def _on_hub_model_selected(self) -> None:
+        selected = self.results_table.selectedItems()
+        if not selected:
+            self._selected_hub_model = None
+            self.download_button.setEnabled(False)
+            return
+
+        row = selected[0].row()
+        item = self.results_table.item(row, 0)
+        rec: HubModelRecord = item.data(Qt.ItemDataRole.UserRole)
+        self._selected_hub_model = rec
+        self.hub_model_row.set_value(rec.repo_id)
+        self.download_button.setEnabled(True)
+        self.download_status_label.setText("")
+
+        # Fetch details in background or fast peek
+        try:
+            info = self._service.get_hub_model_info(rec.repo_id)
+            size_mb = info["total_size_mb"]
+            files_count = len(info["files"])
+            self.hub_files_row.set_value(f"{files_count} files ({size_mb:.1f} MB)")
+            self.compat_model_row.set_value(rec.repo_id)
+            self.compat_arch_row.set_value(info["pipeline_tag"])
+            self.compat_assessment_row.set_value(info["vram_detail"])
+        except Exception:
+            self.hub_files_row.set_value("Metadata available after download")
+
+    def _start_download(self) -> None:
+        if not self._selected_hub_model:
+            return
+        repo_id = self._selected_hub_model.repo_id
+        self.download_button.setEnabled(False)
+        self.download_progress.setVisible(True)
+        self.download_progress.setValue(10)
+        self.download_status_label.setText(f"Downloading {repo_id}...")
+
+        self._download_worker = ModelDownloadWorker(self._service, repo_id, self)
+        self._download_worker.progress.connect(self._on_download_progress)
+        self._download_worker.download_finished.connect(self._on_download_finished)
+        self._download_worker.download_failed.connect(self._on_download_failed)
+        self._download_worker.start()
+
+    def _on_download_progress(self, fraction: float, message: str) -> None:
+        self.download_progress.setValue(int(fraction * 100))
+        self.download_status_label.setText(message)
+
+    def _on_download_finished(self, destination: Path) -> None:
+        self.download_button.setEnabled(True)
+        self.download_progress.setValue(100)
+        self.download_status_label.setText("Download complete")
+        self._state.notify("info", f"Model downloaded to {destination.name}")
+        self.scan_library()
+
+    def _on_download_failed(self, error: str) -> None:
+        self.download_button.setEnabled(True)
+        self.download_progress.setVisible(False)
+        self.download_status_label.setText("Download failed")
+        self._state.notify("error", f"Model download failed: {error}")
+
+    # --- Local library ---
+
+    def scan_library(self) -> None:
+        records = self._service.scan_local_models()
+        self._local_models = records
+        self.library_table.setRowCount(len(records))
+        for row, rec in enumerate(records):
+            name_item = QTableWidgetItem(rec.name)
+            name_item.setData(Qt.ItemDataRole.UserRole, rec)
+            self.library_table.setItem(row, 0, name_item)
+            self.library_table.setItem(row, 1, QTableWidgetItem(rec.kind.capitalize()))
+            self.library_table.setItem(row, 2, QTableWidgetItem(rec.format.upper()))
+            self.library_table.setItem(row, 3, QTableWidgetItem(f"{rec.size_mb:.1f} MB"))
+            self.library_table.setItem(row, 4, QTableWidgetItem(rec.status_detail))
+
+        self.library_pill.set_state("ok" if records else "off", f"{len(records)} models")
+        self._state.publish_models(records)
+
+    def _on_local_model_selected(self) -> None:
+        selected = self.library_table.selectedItems()
+        if not selected:
+            self._selected_local_model = None
+            self.use_training_btn.setEnabled(False)
+            self.use_heretic_btn.setEnabled(False)
+            return
+
+        row = selected[0].row()
+        item = self.library_table.item(row, 0)
+        rec: LocalModelRecord = item.data(Qt.ItemDataRole.UserRole)
+        self._selected_local_model = rec
+        self.use_training_btn.setEnabled(True)
+        self.use_heretic_btn.setEnabled(True)
+
+        self.compat_model_row.set_value(f"{rec.name} ({rec.kind})")
+        self.compat_arch_row.set_value(rec.architecture)
+        self.compat_assessment_row.set_value(rec.status_detail)
+
+    def _on_use_in_training(self) -> None:
+        if self._selected_local_model:
+            self.use_model_in_training.emit(str(self._selected_local_model.path))
+
+    def _on_use_in_heretic(self) -> None:
+        if self._selected_local_model:
+            self.use_model_in_heretic.emit(str(self._selected_local_model.path))

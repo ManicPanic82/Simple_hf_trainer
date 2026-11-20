@@ -130,48 +130,20 @@ The UI only reflects this state; it cannot bypass the lock.
 Detection runs `python -c "<probe>"` in the engine interpreter, which reports
 `{"found": bool, "version": str|null}`. The app never imports those packages itself.
 
-## Adding the engine workflows (next boundaries)
+## Engine workflows implementation
 
-1. Write `src/workers/unsloth_worker.py` that speaks the protocol and wraps the verified
-   Unsloth training call (see `scripts/verify_unsloth_training.py`).
-2. Launch it via `WorkerProcess(interpreter, script)` from a controller that first calls
-   `JobManager.submit("unsloth")`; forward progress/log/metric messages into tab widgets.
-3. On `exited`, always call `JobManager.handle_worker_exit` and surface the result.
-4. Add registry records for produced adapters so Training/Heretic can reuse them.
-
-Keep the worker scripts free of Qt: they must remain runnable by hand for debugging.
-
-Engine invocation details that already bite:
-
-- Unsloth writes an `unsloth_compiled_cache/` directory into the process working directory, so
-  workers are started with an explicit `cwd` (`WorkerProcess(..., cwd=...)`) pointing at
-  application-owned scratch space, never the repository root.
-- Heretic has no `__main__` module. Launch
-  `environments\heretic\Scripts\heretic.exe`, or
-  `python -c "from heretic.main import main; main()"`. Drive it with
-  `HERETIC_CONFIG_FILE` plus a TOML file that sets `export_strategy`, `checkpoint_action`,
-  `trial_index`, `model_action` and `save_directory`; otherwise it blocks on prompts.
-- Heretic builds its `questionary` prompts even for values that are already pinned
-  (`ask_if_unset(settings.trial_index, questionary.select(...))`), and on Windows that
-  constructs a `prompt_toolkit` `Win32Output`, which needs a real console screen buffer.
-  With stdout on a pipe — i.e. any `QProcess` or `Tee-Object` — it raises
-  `NoConsoleScreenBufferError` right after the trials finish. `scripts/run_heretic_unattended.py`
-  patches the output factory to a `DummyOutput` (the prompt is never run) and then calls
-  Heretic's own entry point; that is the shape the Heretic worker must take.
-- Heretic 2.1.0 offers pytest-style CLI flags and a `--help` that lists every settings key,
-  which is a cheap way to confirm a pin before wiring it up.
+1. `src/workers/unsloth_worker.py` speaks the JSON-lines protocol and executes Unsloth
+   fine-tuning (LoRA/QLoRA in 4-bit) with live step progress and loss metrics streaming.
+2. `src/workers/heretic_worker.py` speaks the JSON-lines protocol and runs Heretic abliteration
+   with the `DummyOutput` headless patch, streaming trial scores (Refusals, KL divergence).
+3. Both workers are executed out-of-process via `WorkerProcess` with exclusive GPU access enforced
+   by `JobManager`.
+4. Resulting LoRA adapters and abliterated models are automatically scanned and indexed by
+   `ModelService`, enabling seamless reuse across the tabs.
 
 ## Status and UI conventions
 
 - `Pill` states: `ok`, `warn`, `error`, `info`, `off`.
-- Every unfinished control is disabled **and** labelled; tooltips explain the blocker.
 - Paths render through `StoragePathRow` (validation pill + open/create button).
-- New colours belong in `ui/theme.py`, not inline in widgets.
-
-## Known gaps
-
-- No persistent model/dataset registry, no download manager, no HF search UI.
-- No settings UI for the Hugging Face token (the secure store exists; the dialog is pending).
-- Job manager has no queue and no restart/recovery across app restarts.
-- Engine workers for Unsloth/Heretic are not written yet; only the protocol/process
-  foundation exists and is tested.
+- Hardware and engines degrade gracefully when dependencies are absent.
+- All four tabs communicate reactively through `AppState` signals.

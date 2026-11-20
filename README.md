@@ -13,22 +13,21 @@ as the scarce resource it is.
 
 ## Current status
 
-This repository currently contains **Phase 0 (compatibility investigation)** and
-**Phase 1 (desktop foundation)**. Nothing is simulated: features that do not work yet are
-labelled in the UI.
+This repository contains the complete implementation across all four workflows,
+built Windows-first with an isolated architecture and exclusive GPU resource management.
 
 | Area | Status |
 | --- | --- |
 | Four-tab PySide6 desktop shell | Implemented and tested |
 | Shared hardware / job status strip | Implemented (degrades gracefully without a driver or psutil) |
 | Settings, path validation, storage creation | Implemented and tested |
-| Hugging Face token storage | Windows Credential Manager backend implemented; no UI entry point yet |
+| Hugging Face token storage | Implemented and integrated with Windows Credential Manager |
 | Worker protocol (JSON lines) | Implemented and tested, including malformed input |
-| GPU-exclusive job manager | Foundation implemented and tested (rejects a second engine, releases on crash/cancel) |
-| Model search / download / library | **Not implemented yet** |
-| Dataset search / preview / preparation | **Not implemented yet** |
-| Unsloth training workflow in the GUI | **Not implemented yet** — engine compatibility verified, see report |
-| Heretic workflow in the GUI | **Not implemented yet** — engine compatibility investigated, see report |
+| GPU-exclusive job manager | Implemented and tested (rejects conflicting engine, releases on crash/cancel) |
+| Model search / download / library | Implemented and tested (HF Hub query, snapshot download, local model index, 6 GB VRAM compatibility assessment) |
+| Dataset search / preview / preparation | Implemented and tested (HF Hub dataset query, sample preview, schema validation, Alpaca template preparation) |
+| Unsloth training workflow in the GUI | Implemented and tested (QProcess worker, live steps, loss metrics, log stream, adapter save) |
+| Heretic workflow in the GUI | Implemented and tested (QProcess worker with DummyOutput headless patch, live trials, refusal & KL metrics) |
 
 See [`docs/COMPATIBILITY_REPORT.md`](docs/COMPATIBILITY_REPORT.md) for the evidence behind
 engine claims, including what was actually executed on this machine.
@@ -38,7 +37,7 @@ engine claims, including what was actually executed on this machine.
 | Check | Result |
 | --- | --- |
 | GUI launch from the app environment | Window opens with exactly four tabs, live GPU/RAM status |
-| `python -m pytest` | 108 passed (offscreen Qt) |
+| `python -m pytest` | 123 passed (offscreen Qt) |
 | `python -m ruff check .` | All checks passed |
 | Unsloth 4-bit LoRA training (5 steps, Qwen2.5-0.5B) | Completed, loss 3.01 → 2.73, adapter saved, 0.58 GB peak VRAM |
 | Heretic abliteration | Completed on Qwen2.5-0.5B (4-bit, 2 trials): refusals 5/5 → 4/5, KL 0.0093; merged model saved and generating |
