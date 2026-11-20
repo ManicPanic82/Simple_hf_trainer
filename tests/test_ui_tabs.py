@@ -55,6 +55,7 @@ def test_models_tab_shows_ready_state_for_existing_folder(qapp, tmp_path: Path) 
     )
     tab = ModelsTab(AppState(), StorageService(settings))
     assert tab.models_path.pill.text() == "Ready"
+    assert tab.status_pill.text() == "Model library ready"
 
 
 def test_engine_cards_reflect_detection(qapp, tmp_path: Path) -> None:
@@ -83,6 +84,8 @@ def test_engine_cards_reflect_detection(qapp, tmp_path: Path) -> None:
     assert training.engine_card.pill.text() == "Environment not set up"
     assert heretic.engine_card.pill.text() == "Engine available"
     assert heretic.engine_card.version_row.value.text() == "2.0"
+    assert training.status_pill.text() == "Unsloth not set up"
+    assert heretic.status_pill.text() == "Heretic engine available"
 
 
 def test_settings_dialog_rejects_relative_path_without_saving(qapp, tmp_path: Path) -> None:
