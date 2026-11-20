@@ -16,28 +16,23 @@ from services.storage_service import StorageService
 
 
 def test_estimate_vram_compatibility():
-    # Small model <= 1.5B fits comfortably
     status, detail = estimate_vram_compatibility(500_000_000, 1000, "safetensors")
     assert status == "ok"
-    assert "fits comfortably" in detail
+    assert "Estimate only" in detail
 
-    # Medium model 2-3B tight
     status, detail = estimate_vram_compatibility(2_500_000_000, 4000, "safetensors")
     assert status == "warn"
-    assert "short sequence lengths" in detail
+    assert "short context" in detail
 
-    # Large model > 3.5B exceeds
     status, detail = estimate_vram_compatibility(7_000_000_000, 14000, "safetensors")
     assert status == "error"
-    assert "exceeds" in detail
+    assert "high risk" in detail
 
-    # GGUF size checks
-    status, _ = estimate_vram_compatibility(None, 1500, "gguf")
-    assert status == "ok"
-    status, _ = estimate_vram_compatibility(None, 3500, "gguf")
-    assert status == "warn"
-    status, _ = estimate_vram_compatibility(None, 5500, "gguf")
-    assert status == "error"
+    # Disk footprint alone must never be presented as runtime VRAM.
+    for model_format, size in (("gguf", 1500), ("gguf", 5500), ("safetensors", 1000)):
+        status, detail = estimate_vram_compatibility(None, size, model_format)
+        assert status == "warn"
+        assert "not runtime VRAM" in detail or "cannot predict VRAM" in detail
 
 
 def test_inspect_model_directory_for_full_model(tmp_path: Path):
