@@ -94,11 +94,13 @@ def test_cancel_fallback_terminates_unresponsive_worker(qapp, wait_for) -> None:
     script = Path(__file__).resolve().parent / "support" / "unresponsive_worker.py"
     worker = WorkerProcess(sys.executable, script)
     exits: list[int] = []
+    messages = []
     worker.exited.connect(exits.append)
+    worker.message_received.connect(messages.append)
 
     worker.start()
     try:
-        assert wait_for(lambda: worker.running, timeout_ms=5_000)
+        assert wait_for(lambda: bool(messages), timeout_ms=5_000)
         assert worker.request_cancel("job-99", grace_ms=100) is True
         assert wait_for(lambda: bool(exits), timeout_ms=8_000)
         assert worker.running is False
