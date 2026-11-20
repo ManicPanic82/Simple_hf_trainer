@@ -11,7 +11,9 @@ import contextlib
 import json
 import os
 import re
+import signal
 import sys
+import threading
 import tempfile
 import traceback
 from pathlib import Path
@@ -36,6 +38,23 @@ def emit(
     line = json.dumps(data, ensure_ascii=False)
     sys.stdout.write(line + "\n")
     sys.stdout.flush()
+
+
+def start_cancel_listener(job_id: str) -> None:
+    """Convert a protocol cancel message into an interrupt of the Heretic main thread."""
+    def listen() -> None:
+        for line in sys.stdin:
+            try:
+                message = json.loads(line)
+            except (TypeError, ValueError):
+                continue
+            if message.get("type") == "cancel" and message.get("job_id") == job_id:
+                # Python delivers the signal handler on the main thread. This
+                # lets Heretic unwind through its normal finally blocks.
+                signal.raise_signal(signal.SIGINT)
+                return
+
+    threading.Thread(target=listen, name="heretic-cancel-listener", daemon=True).start()
 
 
 def install_dummy_prompt_output() -> None:
@@ -107,6 +126,7 @@ def run_worker(cfg: dict) -> int:
     seed = int(cfg.get("seed", 42))
 
     emit("hello", payload={"role": "heretic-worker", "pid": os.getpid()})
+    start_cancel_listener(job_id)
 
     install_dummy_prompt_output()
 
@@ -190,6 +210,9 @@ column = "text"
         sys.argv = ["heretic"]
         result = heretic_main()
         rc = 0 if result is None else int(result)
+    except KeyboardInterrupt:
+        emit("log", job_id, {"message": "Cancellation acknowledged; Heretic is stopping.", "level": "warning"})
+        rc = 130
     except Exception as error:
         tb = traceback.format_exc()
         emit("error", job_id, {"message": f"{error}\n{tb[-1000:]}"})
