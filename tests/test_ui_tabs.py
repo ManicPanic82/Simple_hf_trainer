@@ -72,6 +72,24 @@ def test_datasets_tab_reports_workspace_readiness(qapp, tmp_path: Path) -> None:
     assert tab.status_pill.text() == "Dataset workspace ready"
 
 
+def test_engine_actions_wait_for_initial_detection(qapp, tmp_path: Path) -> None:
+    settings = settings_with(
+        tmp_path,
+        models_dir=tmp_path / "models",
+        datasets_dir=tmp_path / "datasets",
+        outputs_dir=tmp_path / "outputs",
+        hf_cache_dir=tmp_path / "cache",
+    )
+    state = AppState()
+    training = TrainingTab(state, StorageService(settings))
+    heretic = HereticTab(state, StorageService(settings))
+
+    assert training.status_pill.text() == "Checking Unsloth"
+    assert heretic.status_pill.text() == "Checking Heretic"
+    assert not training.start_button.isEnabled()
+    assert not heretic.run_button.isEnabled()
+
+
 def test_engine_cards_reflect_detection(qapp, tmp_path: Path) -> None:
     settings = settings_with(
         tmp_path,
