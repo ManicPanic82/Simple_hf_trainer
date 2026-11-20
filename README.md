@@ -107,14 +107,17 @@ Engine environments live under `environments/` and are **never** committed.
 
 ## Known limitations
 
-- Only the desktop foundation exists; the four workflows are still placeholders with clear
-  labels.
-- The job manager rejects a second engine job instead of queueing it.
-- No model or dataset registry is persisted yet.
-- GPU monitoring uses `nvidia-smi`; on machines without it the strip shows *Unavailable*
-  instead of inventing values.
-- Training/Heretic are invoked per-job in their own environments; those workflows enter the
-  GUI in the next phase.
+- The engine workflows have only been smoke-tested with small reference workloads; production
+  runs, broad model-family coverage, large datasets and all export paths remain unverified.
+- The GPU job manager rejects a second engine job instead of queueing it.
+- VRAM assessments are rough indicators. Disk footprint is not GPU memory usage; actual
+  requirements depend on quantization, context length, activations, offload settings and
+  other GPU processes.
+- Cancellation is cooperative first. Unsloth stops at a training-step boundary and Heretic
+  receives an interrupt; an unresponsive worker is terminated after a grace period.
+- No persistent model or dataset registry is maintained yet.
+- GPU monitoring uses `nvidia-smi`; without it the status strip reports *Unavailable*.
+
 
 ## Licence notes
 
