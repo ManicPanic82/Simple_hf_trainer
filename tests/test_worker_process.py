@@ -88,3 +88,19 @@ def test_missing_working_directory_is_reported(qapp, wait_for, tmp_path: Path) -
     worker.start()
     assert wait_for(lambda: bool(failures), timeout_ms=10_000)
     worker.stop()
+
+
+def test_cancel_fallback_terminates_unresponsive_worker(qapp, wait_for) -> None:
+    script = Path(__file__).resolve().parent / "support" / "unresponsive_worker.py"
+    worker = WorkerProcess(sys.executable, script)
+    exits: list[int] = []
+    worker.exited.connect(exits.append)
+
+    worker.start()
+    try:
+        assert wait_for(lambda: worker.running, timeout_ms=5_000)
+        assert worker.request_cancel("job-99", grace_ms=100) is True
+        assert wait_for(lambda: bool(exits), timeout_ms=8_000)
+        assert worker.running is False
+    finally:
+        worker.stop()
