@@ -1,0 +1,25 @@
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "error::DeprecationWarning:app.*",
+    "error::DeprecationWarning:ui.*",
+    "error::DeprecationWarning:services.*",
+    "error::DeprecationWarning:workers.*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+exclude = [".evidence-tmp", "environments", "unsloth_compiled_cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+ignore = [
+    "E501",  # line length is advisory; formatter handles wrapping
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
