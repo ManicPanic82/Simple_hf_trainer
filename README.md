@@ -13,37 +13,37 @@ as the scarce resource it is.
 
 ## Current status
 
-This repository contains the complete implementation across all four workflows,
-built Windows-first with an isolated architecture and exclusive GPU resource management.
+The `feature/desktop-foundation` development branch contains the four-tab desktop
+application and working implementations for model discovery, dataset preparation,
+Unsloth fine-tuning, and Heretic abliteration. This is a development branch, not a
+release-ready claim: the initial project plan called for a desktop foundation first,
+and the engine workflows on this branch are ahead of that original phase boundary.
 
-| Area | Status |
+| Area | Current implementation |
 | --- | --- |
-| Four-tab PySide6 desktop shell | Implemented and tested |
-| Shared hardware / job status strip | Implemented (degrades gracefully without a driver or psutil) |
-| Settings, path validation, storage creation | Implemented and tested |
-| Hugging Face token storage | Implemented and integrated with Windows Credential Manager |
-| Worker protocol (JSON lines) | Implemented and tested, including malformed input |
-| GPU-exclusive job manager | Implemented and tested (rejects conflicting engine, releases on crash/cancel) |
-| Model search / download / library | Implemented and tested (HF Hub query, snapshot download, local model index, 6 GB VRAM compatibility assessment) |
-| Dataset search / preview / preparation | Implemented and tested (HF Hub dataset query, sample preview, schema validation, Alpaca template preparation) |
-| Unsloth training workflow in the GUI | Implemented and tested (QProcess worker, live steps, loss metrics, log stream, adapter save) |
-| Heretic workflow in the GUI | Implemented and tested (QProcess worker with DummyOutput headless patch, live trials, refusal & KL metrics) |
+| Four-tab PySide6 desktop shell | Implemented |
+| Hardware status, settings, storage paths | Implemented; hardware values degrade gracefully when probes are unavailable |
+| Hugging Face token storage | Windows Credential Manager integration |
+| Worker protocol and process runner | JSON-lines protocol, validation, background QProcess execution |
+| GPU-exclusive job lifecycle | Centralised lock; completion is reconciled after the child process exits |
+| Models | Hub search, background metadata lookup, download, local library and qualified memory estimates |
+| Datasets | Hub search, local inspection, preview, preparation; JSON, JSONL, CSV, Parquet and Arrow IPC |
+| Training | Unsloth LoRA/QLoRA worker with progress, metrics, dataset validation and cooperative cancellation |
+| Heretic | Headless Heretic worker with trial metrics and cancellation interrupt |
 
-See [`docs/COMPATIBILITY_REPORT.md`](docs/COMPATIBILITY_REPORT.md) for the evidence behind
-engine claims, including what was actually executed on this machine.
+The compatibility report records small, real engine smoke tests on the reference GTX 1660.
+Those tests prove that the selected engine versions can execute minimal workloads; they do
+not prove every GUI workflow, model architecture, dataset format, export strategy, or
+long-running training configuration. See
+[`docs/COMPATIBILITY_REPORT.md`](docs/COMPATIBILITY_REPORT.md) for the exact evidence
+and its limitations.
 
-### Verified on this machine (not just installed)
+### Previously recorded validation
 
-| Check | Result |
-| --- | --- |
-| GUI launch from the app environment | Window opens with exactly four tabs, live GPU/RAM status |
-| `python -m pytest` | 123 passed (offscreen Qt) |
-| `python -m ruff check .` | All checks passed |
-| Unsloth 4-bit LoRA training (5 steps, Qwen2.5-0.5B) | Completed, loss 3.01 → 2.73, adapter saved, 0.58 GB peak VRAM |
-| Heretic abliteration | Completed on Qwen2.5-0.5B (4-bit, 2 trials): refusals 5/5 → 4/5, KL 0.0093; merged model saved and generating |
-| Windows Credential Manager token round-trip | Written, read back and deleted by the test suite |
+The branch author recorded 123 passing tests and a clean Ruff run before the review repairs.
+Those results are historical and must not be treated as validation of the current repair
+branch until the Windows test and lint commands below have been rerun.
 
-Screenshots of each tab are in [`docs/evidence`](docs/evidence).
 
 ## Requirements
 
