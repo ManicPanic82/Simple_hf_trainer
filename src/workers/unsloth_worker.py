@@ -97,6 +97,17 @@ def load_dataset_file(file_path: Path):
 
         table = pq.read_table(file_path)
         rows = table.to_pylist()
+    elif suffix == ".arrow":
+        import pyarrow as pa
+        import pyarrow.ipc as ipc
+
+        with pa.memory_map(str(file_path), "r") as source:
+            try:
+                reader = ipc.open_file(source)
+            except pa.ArrowInvalid:
+                source.seek(0)
+                reader = ipc.open_stream(source)
+            rows = reader.read_all().to_pylist()
     else:
         raise ValueError(f"Unsupported dataset format: {suffix}")
 
