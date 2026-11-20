@@ -83,3 +83,12 @@ def test_unsloth_requires_an_existing_training_dataset(tmp_path: Path):
     valid = tmp_path / "dataset.jsonl"
     valid.write_text('{"text":"hello"}\n', encoding="utf-8")
     assert validate_dataset_path(valid) == valid
+
+
+def test_unsloth_rejects_rows_without_training_fields(tmp_path: Path):
+    import pytest
+
+    dataset_file = tmp_path / "events.jsonl"
+    dataset_file.write_text('{"timestamp":123,"event":"click"}\\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="no supported training fields"):
+        load_dataset_file(dataset_file)
