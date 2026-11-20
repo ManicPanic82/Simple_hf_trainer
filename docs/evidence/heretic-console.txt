@@ -1,0 +1,134 @@
+# Heretic abliteration console transcript (ANSI stripped)
+# Command: environments\heretic\Scripts\python.exe scripts\run_heretic_unattended.py
+# Config:  config\heretic-verify.toml via HERETIC_CONFIG_FILE
+ΓûêΓûæΓûêΓûæΓûêΓûÇΓûÇΓûæΓûêΓûÇΓûäΓûæΓûêΓûÇΓûÇΓûæΓûÇΓûêΓûÇΓûæΓûêΓûæΓûêΓûÇΓûÇ  v2.1.0
+ΓûêΓûÇΓûêΓûæΓûêΓûÇΓûÇΓûæΓûêΓûÇΓûäΓûæΓûêΓûÇΓûÇΓûæΓûæΓûêΓûæΓûæΓûêΓûæΓûêΓûæΓûæ  https://heretic-project.org
+ΓûÇΓûæΓûÇΓûæΓûÇΓûÇΓûÇΓûæΓûÇΓûæΓûÇΓûæΓûÇΓûÇΓûÇΓûæΓûæΓûÇΓûæΓûæΓûÇΓûæΓûÇΓûÇΓûÇ  https://github.com/p-e-w/heretic
+
+Detected 1 CUDA device(s) (6.00 GB total VRAM)
+CUDA Version: 12.6
+Driver Version: 617.42
+* CUDA 0: NVIDIA GeForce GTX 1660 (6.00 GB)
+
+Loading model Qwen/Qwen2.5-0.5B-Instruct...
+* Trying dtype auto...
+W1120 15:38:11.533000 15784 Lib\site-packages\torch\utils\flop_counter.py:113] triton not found; flop counting will not work for triton kernels
+
+* Quantized to 4-bit precision
+* Transformer model with 24 layers
+* Modifiable components:
+  * attn.o_proj: 24 modules total
+  * mlp.down_proj: 24 modules total
+
+Resident system RAM: 1.48 GB
+Allocated GPU VRAM: 0.43 GB
+Reserved GPU VRAM: 0.46 GB
+
+Loading response prefix test prompts from [mlabonne/harmless_alpaca]...
+* 5 prompts loaded
+
+Checking chat template for a closed Chain-of-Thought block or an initializer...
+* None found
+
+Checking for common response prefix...
+* None found
+
+Loading and initializing scorers...
+* Loaded: KeywordRate
+* Loaded: KLDivergence
+
+Loading Refusals evaluation prompts from mlabonne/harmful_behaviors...
+* 5 prompts loaded
+
+Loading KL divergence evaluation prompts from mlabonne/harmless_alpaca...
+* 5 prompts loaded
+* Obtaining baseline first-token probability distributions...
+
+Getting baseline scores...
+* Baseline Refusals: 5/5
+* Baseline KL divergence: 0 (by definition)
+
+Loading and initializing modifiers...
+* Loaded: Abliteration
+
+Loading good prompts from mlabonne/harmless_alpaca...
+* 5 prompts loaded
+
+Loading bad prompts from mlabonne/harmful_behaviors...
+* 5 prompts loaded
+
+Calculating per-layer residual directions...
+* Obtaining residual mean for good prompts...
+* Obtaining residual mean for bad prompts...
+
+Running trial 1 of 2...
+* Parameters:
+  * direction_index = per layer
+  * attn.o_proj.max_weight = 1.22
+  * attn.o_proj.max_weight_position = 15.24
+  * attn.o_proj.min_weight = 0.19
+  * attn.o_proj.min_weight_distance = 1.74
+  * mlp.down_proj.max_weight = 1.27
+  * mlp.down_proj.max_weight_position = 19.33
+  * mlp.down_proj.min_weight = 0.90
+  * mlp.down_proj.min_weight_distance = 1.26
+* Resetting model...
+* Modifying model using Magnitude-Preserving Orthogonal Ablation (MPOA)...
+* Evaluating...
+  * Refusals: 4/5
+  * KL divergence: 0.0093
+
+Elapsed time: 6s
+Estimated remaining time: 6s
+Resident system RAM: 1.65 GB
+Allocated GPU VRAM: 0.44 GB
+Reserved GPU VRAM: 0.46 GB
+
+Running trial 2 of 2...
+* Parameters:
+  * direction_index = per layer
+  * attn.o_proj.max_weight = 1.37
+  * attn.o_proj.max_weight_position = 21.89
+  * attn.o_proj.min_weight = 0.13
+  * attn.o_proj.min_weight_distance = 3.76
+  * mlp.down_proj.max_weight = 1.37
+  * mlp.down_proj.max_weight_position = 21.13
+  * mlp.down_proj.min_weight = 0.72
+  * mlp.down_proj.min_weight_distance = 1.40
+* Resetting model...
+* Modifying model using Magnitude-Preserving Orthogonal Ablation (MPOA)...
+* Evaluating...
+  * Refusals: 5/5
+  * KL divergence: 0.0079
+
+Elapsed time: 12s
+Resident system RAM: 1.65 GB
+Allocated GPU VRAM: 0.44 GB
+Reserved GPU VRAM: 0.46 GB
+
+Optimization finished!
+
+Restoring model from trial 1...
+* Parameters:
+  * direction_index = per layer
+  * attn.o_proj.max_weight = 1.22
+  * attn.o_proj.max_weight_position = 15.24
+  * attn.o_proj.min_weight = 0.19
+  * attn.o_proj.min_weight_distance = 1.74
+  * mlp.down_proj.max_weight = 1.27
+  * mlp.down_proj.max_weight_position = 19.33
+  * mlp.down_proj.min_weight = 0.90
+  * mlp.down_proj.min_weight_distance = 1.26
+* Resetting model...
+* Modifying model using Magnitude-Preserving Orthogonal Ablation (MPOA)...
+Saving merged model...
+* Loading base model on CPU (this may take a while)...
+
+* Applying LoRA adapters...
+* Merging LoRA adapters into base model...
+
+Model saved to docs/evidence/heretic-run/model.
+* Resetting model...
+* Modifying model using Magnitude-Preserving Orthogonal Ablation (MPOA)...
+=== DONE rc=0 ===
+
