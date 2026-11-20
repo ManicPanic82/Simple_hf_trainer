@@ -121,9 +121,8 @@ def test_arrow_dataset_inspection_preview_and_preparation(tmp_path: Path):
             {"instruction": "Name a colour", "input": "", "output": "Blue"},
         ]
     )
-    with pa.OSFile(str(source), "wb") as sink:
-        with ipc.new_file(sink, table.schema) as writer:
-            writer.write_table(table)
+    with pa.OSFile(str(source), "wb") as sink, ipc.new_file(sink, table.schema) as writer:
+        writer.write_table(table)
 
     record = inspect_dataset_file(source)
     assert record is not None

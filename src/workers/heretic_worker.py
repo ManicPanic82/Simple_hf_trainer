@@ -13,8 +13,8 @@ import os
 import re
 import signal
 import sys
-import threading
 import tempfile
+import threading
 import traceback
 from pathlib import Path
 
