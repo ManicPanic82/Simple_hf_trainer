@@ -111,6 +111,12 @@ Rules enforced by `workers/protocol.py`:
   is no queue yet; rejection is explicit and visible.
 - `request_cancel(job_id)` moves the job to `cancelling` but **keeps** the lock until the
   worker process has actually exited.
+- The GUI sends a protocol cancellation request asynchronously. Unsloth stops at the next
+  training-step boundary; Heretic receives an interrupt and unwinds its cleanup path. If a
+  worker does not exit within 10 seconds, the process runner requests termination and then
+  kills it after a further 2 seconds. The GUI thread never waits synchronously for this path.
+- The UI records `job_complete` as a pending result and only releases the GPU lock after the
+  process-exited signal. A process that exits without a completion message is a failure.
 - `mark_succeeded` / `mark_failed` / `mark_cancelled` release the lock.
 - `handle_worker_exit(job_id, exit_code)` reconciles reality: cancellation wins, a non-zero
   exit is a failure, and exit code 0 **without** a completion message is also a failure
