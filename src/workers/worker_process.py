@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
 from workers.protocol import (
     MAX_MESSAGE_BYTES,
@@ -110,8 +110,34 @@ class WorkerProcess(QObject):
     ) -> bool:
         return self.send_raw(encode_message(message_type, job_id=job_id, payload=payload))
 
-    def request_cancel(self, job_id: str, *, reason: str = "Cancelled by user.") -> bool:
-        return self.send_message(MessageType.CANCEL, job_id=job_id, payload={"reason": reason})
+    def request_cancel(
+        self,
+        job_id: str,
+        *,
+        reason: str = "Cancelled by user.",
+        grace_ms: int = 10_000,
+    ) -> bool:
+        """Request graceful cancellation and schedule a non-blocking hard-stop fallback.
+
+        The GUI thread is never held while waiting for an engine. Workers that
+        honour the protocol exit themselves; an unresponsive engine is
+        terminated after the grace period and killed shortly afterwards.
+        """
+        sent = self.send_message(MessageType.CANCEL, job_id=job_id, payload={"reason": reason})
+        if sent:
+            QTimer.singleShot(max(0, grace_ms), self._terminate_after_cancel)
+        return sent
+
+    def _terminate_after_cancel(self) -> None:
+        if not self.running:
+            return
+        self._stopping = True
+        self._process.terminate()
+        QTimer.singleShot(2_000, self._kill_after_cancel)
+
+    def _kill_after_cancel(self) -> None:
+        if self.running:
+            self._process.kill()
 
     def send_raw(self, text: str) -> bool:
         if not self.running:
