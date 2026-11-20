@@ -150,17 +150,19 @@ def load_dataset_file(file_path: Path):
 def create_sft_config(config_class, config_kwargs: dict, max_seq_length: int):
     """Build SFTConfig across TRL versions or raise a useful compatibility error."""
     errors = []
+    last_error = None
     for length_key in ("max_length", "max_seq_length"):
         try:
             return config_class(**config_kwargs, **{length_key: max_seq_length})
         except TypeError as error:
+            last_error = error
             errors.append(f"{length_key}: {error}")
 
     details = "; ".join(errors)
     raise RuntimeError(
         "Installed TRL SFTConfig accepts neither supported sequence-length argument "
         f"('max_length' or 'max_seq_length'). Details: {details}"
-    ) from error
+    ) from last_error
 
 
 def run_worker(cfg: dict) -> int:
