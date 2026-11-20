@@ -63,7 +63,7 @@ cd Simple_hf_trainer
 py -3.12 -m venv environments\app
 .\environments\app\Scripts\python.exe -m pip install -r requirements-dev.txt
 
-.\environments\app\Scripts\python.exe main.py
+.\launch.ps1   # Or double-click run.bat in Windows Explorer
 ```
 
 The window opens even when Unsloth and Heretic are not installed; their status is reported
