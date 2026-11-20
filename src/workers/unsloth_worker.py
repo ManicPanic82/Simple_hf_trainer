@@ -160,7 +160,7 @@ def create_sft_config(config_class, config_kwargs: dict, max_seq_length: int):
 
     details = "; ".join(errors)
     raise RuntimeError(
-        "Installed TRL SFTConfig accepts neither supported sequence-length argument "
+        "Unable to construct installed TRL SFTConfig using either supported sequence-length argument "
         f"('max_length' or 'max_seq_length'). Details: {details}"
     ) from last_error
 
