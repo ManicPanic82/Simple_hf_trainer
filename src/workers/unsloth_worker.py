@@ -76,11 +76,16 @@ def load_dataset_file(file_path: Path):
     rows = []
     if suffix == ".jsonl":
         with open(file_path, encoding="utf-8", errors="replace") as f:
-            for line in f:
+            for line_number, line in enumerate(f, start=1):
                 line = line.strip()
-                if line:
-                    with contextlib.suppress(Exception):
-                        rows.append(json.loads(line))
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError as error:
+                    raise ValueError(
+                        f"Invalid JSONL record at line {line_number}: {error.msg}"
+                    ) from error
     elif suffix == ".json":
         with open(file_path, encoding="utf-8", errors="replace") as f:
             data = json.load(f)
@@ -140,6 +145,22 @@ def load_dataset_file(file_path: Path):
             )
 
     return Dataset.from_list(formatted_rows)
+
+
+def create_sft_config(config_class, config_kwargs: dict, max_seq_length: int):
+    """Build SFTConfig across TRL versions or raise a useful compatibility error."""
+    errors = []
+    for length_key in ("max_length", "max_seq_length"):
+        try:
+            return config_class(**config_kwargs, **{length_key: max_seq_length})
+        except TypeError as error:
+            errors.append(f"{length_key}: {error}")
+
+    details = "; ".join(errors)
+    raise RuntimeError(
+        "Installed TRL SFTConfig accepts neither supported sequence-length argument "
+        f"('max_length' or 'max_seq_length'). Details: {details}"
+    ) from error
 
 
 def run_worker(cfg: dict) -> int:
@@ -240,12 +261,7 @@ def run_worker(cfg: dict) -> int:
             "optim": "adamw_8bit",
             "seed": 42,
         }
-        for length_key in ("max_length", "max_seq_length"):
-            try:
-                config = SFTConfig(**sft_kwargs, **{length_key: max_seq_length})
-                break
-            except TypeError:
-                continue
+        config = create_sft_config(SFTConfig, sft_kwargs, max_seq_length)
 
         trainer = None
         for extra in (
