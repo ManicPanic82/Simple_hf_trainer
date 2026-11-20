@@ -321,15 +321,15 @@ class TrainingTab(TabPage):
             self.log_view.clear()
             self.step_label.setText("Step: 0")
             self.loss_label.setText("Loss: —")
-    
+
             outputs_dir = self._storage.path_for("outputs_dir") / f"unsloth_{job.job_id}"
             outputs_dir.mkdir(parents=True, exist_ok=True)
-    
+
             try:
                 lr_val = float(self.lr_edit.text().strip())
             except ValueError:
                 lr_val = 2e-4
-    
+
             config_data = {
                 "job_id": job.job_id,
                 "model_name": model_name,
@@ -342,10 +342,10 @@ class TrainingTab(TabPage):
                 "lora_r": self.r_spin.value(),
                 "lora_alpha": self.alpha_spin.value(),
             }
-    
+
             scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
             scratch_dir.mkdir(parents=True, exist_ok=True)
-    
+
             worker = WorkerProcess(
                 interpreter=interpreter,
                 script=worker_script,
@@ -354,14 +354,20 @@ class TrainingTab(TabPage):
                 parent=self,
             )
             self._active_worker = worker
-    
+
             worker.started.connect(self._on_worker_started)
             worker.message_received.connect(self._on_worker_message)
             worker.exited.connect(self._on_worker_exited)
             worker.failed_to_start.connect(self._on_worker_failed_to_start)
             worker.start()
         except Exception as error:
-            self._handle_setup_failure(job.job_id, error)
+            if self._active_worker is not None and self._active_worker.running:
+                self._state.notify(
+                    "error",
+                    f"Training worker started but setup reported an error: {error}",
+                )
+            else:
+                self._handle_setup_failure(job.job_id, error)
 
     def _handle_setup_failure(self, job_id: str, error: Exception) -> None:
         """Fail a job whose worker could not be prepared or started."""
