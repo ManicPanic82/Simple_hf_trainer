@@ -282,6 +282,12 @@ class TrainingTab(TabPage):
             return
 
         dataset_path = self.dataset_combo.currentData() or self.dataset_combo.currentText().strip()
+        if not dataset_path or not Path(str(dataset_path)).is_file():
+            self._state.notify(
+                "error",
+                "Select an existing local training dataset in the Datasets tab before starting fine-tuning.",
+            )
+            return
 
         # Check interpreter
         unsloth_status = self._registry.status(UNSLOTH)
