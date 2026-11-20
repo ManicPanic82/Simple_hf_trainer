@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from workers.heretic_worker import OutputInterceptor
-from workers.unsloth_worker import load_dataset_file, validate_dataset_path
+from workers.unsloth_worker import create_sft_config, load_dataset_file, validate_dataset_path
 
 
 def test_unsloth_load_dataset_file_jsonl(tmp_path: Path):
@@ -92,3 +92,46 @@ def test_unsloth_rejects_rows_without_training_fields(tmp_path: Path):
     dataset_file.write_text('{"timestamp":123,"event":"click"}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="no supported training fields"):
         load_dataset_file(dataset_file)
+
+
+def test_unsloth_jsonl_reports_invalid_line_number(tmp_path: Path):
+    import pytest
+
+    dataset_file = tmp_path / "broken.jsonl"
+    dataset_file.write_text('{"text":"valid"}\\n{invalid json}\\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid JSONL record at line 2"):
+        load_dataset_file(dataset_file)
+
+
+def test_sft_config_supports_max_length_argument():
+    class MaxLengthConfig:
+        def __init__(self, **kwargs):
+            if "max_length" not in kwargs:
+                raise TypeError("unexpected max_seq_length")
+            self.values = kwargs
+
+    config = create_sft_config(MaxLengthConfig, {"output_dir": "out"}, 512)
+    assert config.values["max_length"] == 512
+
+
+def test_sft_config_supports_max_seq_length_argument():
+    class MaxSeqLengthConfig:
+        def __init__(self, **kwargs):
+            if "max_length" in kwargs:
+                raise TypeError("unexpected max_length")
+            self.values = kwargs
+
+    config = create_sft_config(MaxSeqLengthConfig, {"output_dir": "out"}, 256)
+    assert config.values["max_seq_length"] == 256
+
+
+def test_sft_config_reports_unsupported_sequence_length_signature():
+    import pytest
+
+    class UnsupportedConfig:
+        def __init__(self, **kwargs):
+            raise TypeError("unsupported sequence length")
+
+    with pytest.raises(RuntimeError, match="accepts neither supported sequence-length"):
+        create_sft_config(UnsupportedConfig, {"output_dir": "out"}, 128)
