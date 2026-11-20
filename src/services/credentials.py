@@ -47,6 +47,26 @@ class NullCredentialStore:
         return None
 
 
+class MemoryCredentialStore:
+    """In-memory store useful for testing."""
+
+    available = True
+
+    def __init__(self, initial_token: str | None = None) -> None:
+        self._tokens: dict[str, str] = {}
+        if initial_token:
+            self._tokens[DEFAULT_TARGET] = initial_token
+
+    def get_token(self, target: str = DEFAULT_TARGET) -> str | None:
+        return self._tokens.get(target)
+
+    def set_token(self, token: str, target: str = DEFAULT_TARGET) -> None:
+        self._tokens[target] = token
+
+    def delete_token(self, target: str = DEFAULT_TARGET) -> None:
+        self._tokens.pop(target, None)
+
+
 if sys.platform == "win32":  # pragma: no cover - exercised by Windows-only tests
     from ctypes import wintypes
 
