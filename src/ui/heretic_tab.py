@@ -271,10 +271,10 @@ class HereticTab(TabPage):
             self.trial_metric_label.setText("Trial: 0")
             self.refusal_metric_label.setText("Refusal: —")
             self.kl_metric_label.setText("KL Div: —")
-    
+
             outputs_dir = self._storage.path_for("outputs_dir") / f"heretic_{job.job_id}"
             outputs_dir.mkdir(parents=True, exist_ok=True)
-    
+
             config_data = {
                 "job_id": job.job_id,
                 "model_name": model_name,
@@ -283,10 +283,10 @@ class HereticTab(TabPage):
                 "output_dir": str(outputs_dir / "model"),
                 "seed": 42,
             }
-    
+
             scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
             scratch_dir.mkdir(parents=True, exist_ok=True)
-    
+
             worker = WorkerProcess(
                 interpreter=interpreter,
                 script=worker_script,
@@ -295,14 +295,20 @@ class HereticTab(TabPage):
                 parent=self,
             )
             self._active_worker = worker
-    
+
             worker.started.connect(self._on_worker_started)
             worker.message_received.connect(self._on_worker_message)
             worker.exited.connect(self._on_worker_exited)
             worker.failed_to_start.connect(self._on_worker_failed_to_start)
             worker.start()
         except Exception as error:
-            self._handle_setup_failure(job.job_id, error)
+            if self._active_worker is not None and self._active_worker.running:
+                self._state.notify(
+                    "error",
+                    f"Heretic worker started but setup reported an error: {error}",
+                )
+            else:
+                self._handle_setup_failure(job.job_id, error)
 
     def _handle_setup_failure(self, job_id: str, error: Exception) -> None:
         """Fail a job whose worker could not be prepared or started."""
