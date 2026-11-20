@@ -75,7 +75,8 @@ def test_inspect_model_directory_for_adapter(tmp_path: Path):
     assert record.name == "lora_out"
     assert record.kind == "adapter"
     assert "LoRA Adapter" in record.architecture
-    assert record.vram_status == "ok"
+    assert record.vram_status == "warn"
+    assert "base-model" in record.status_detail
 
 
 def test_inspect_model_directory_empty(tmp_path: Path):
