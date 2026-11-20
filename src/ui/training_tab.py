@@ -256,6 +256,8 @@ class TrainingTab(TabPage):
         status = statuses.get(UNSLOTH)
         if status is None:
             self.set_status("Checking Unsloth", "info")
+            self.start_button.setEnabled(False)
+            self.start_button.setToolTip("Waiting for the Unsloth engine check.")
             return
 
         self.engine_card.apply_status(status)
