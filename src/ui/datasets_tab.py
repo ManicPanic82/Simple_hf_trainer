@@ -217,6 +217,10 @@ class DatasetsTab(TabPage):
             note=note,
             severity="error" if errors else "warn",
         )
+        self.set_status(
+            "Dataset workspace ready" if validation.ok else "Dataset storage needs attention",
+            "ok" if validation.ok else ("error" if errors else "warn"),
+        )
 
     # --- Hub Search ---
 
