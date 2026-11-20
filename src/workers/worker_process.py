@@ -124,7 +124,9 @@ class WorkerProcess(QObject):
         terminated after the grace period and killed shortly afterwards.
         """
         sent = self.send_message(MessageType.CANCEL, job_id=job_id, payload={"reason": reason})
-        if sent:
+        # Even if stdin has already closed or the write fails, cancellation
+        # must not strand a GPU-owning process indefinitely.
+        if self.running:
             QTimer.singleShot(max(0, grace_ms), self._terminate_after_cancel)
         return sent
 
