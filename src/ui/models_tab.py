@@ -259,6 +259,10 @@ class ModelsTab(TabPage):
         can_use = validation.ok
         self.search_button.setEnabled(can_use)
         self.search_input.setEnabled(can_use)
+        self.set_status(
+            "Model library ready" if can_use else "Model storage needs attention",
+            "ok" if can_use else ("error" if errors else "warn"),
+        )
 
     # --- Hub search and download ---
 
