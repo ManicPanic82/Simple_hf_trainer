@@ -15,6 +15,7 @@ from services.settings_service import (
     SettingsService,
 )
 from services.storage_service import StorageService
+from ui.datasets_tab import DatasetsTab
 from ui.heretic_tab import HereticTab
 from ui.models_tab import ModelInfoWorker, ModelsTab
 from ui.settings_dialog import SettingsDialog
@@ -56,6 +57,19 @@ def test_models_tab_shows_ready_state_for_existing_folder(qapp, tmp_path: Path) 
     tab = ModelsTab(AppState(), StorageService(settings))
     assert tab.models_path.pill.text() == "Ready"
     assert tab.status_pill.text() == "Model library ready"
+
+
+def test_datasets_tab_reports_workspace_readiness(qapp, tmp_path: Path) -> None:
+    settings = settings_with(
+        tmp_path,
+        models_dir=tmp_path / "models",
+        datasets_dir=tmp_path / "datasets",
+        outputs_dir=tmp_path / "outputs",
+        hf_cache_dir=tmp_path / "cache",
+    )
+    tab = DatasetsTab(AppState(), StorageService(settings))
+
+    assert tab.status_pill.text() == "Dataset workspace ready"
 
 
 def test_engine_cards_reflect_detection(qapp, tmp_path: Path) -> None:
