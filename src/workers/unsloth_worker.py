@@ -116,21 +116,28 @@ def load_dataset_file(file_path: Path):
 
     # Ensure each row has a 'text' field
     formatted_rows = []
-    for r in rows:
-        if "text" in r and r["text"]:
-            formatted_rows.append({"text": str(r["text"])})
-        elif "instruction" in r:
-            inst = r.get("instruction", "")
-            inp = r.get("input", "")
-            out = r.get("output", "")
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"Dataset row {index + 1} is not an object.")
+        if row.get("text"):
+            formatted_rows.append({"text": str(row["text"])})
+        elif "instruction" in row and "output" in row:
+            inst = str(row.get("instruction", "") or "")
+            inp = str(row.get("input", "") or "")
+            out = str(row.get("output", "") or "")
             if inp:
                 text = f"### Instruction:\n{inst}\n\n### Input:\n{inp}\n\n### Response:\n{out}"
             else:
                 text = f"### Instruction:\n{inst}\n\n### Response:\n{out}"
             formatted_rows.append({"text": text})
+        elif "prompt" in row and ("response" in row or "completion" in row):
+            response = row.get("response", row.get("completion", ""))
+            formatted_rows.append({"text": f"### Instruction:\n{row['prompt']}\n\n### Response:\n{response}"})
         else:
-            first_val = next(iter(r.values())) if r else ""
-            formatted_rows.append({"text": str(first_val)})
+            raise ValueError(
+                f"Dataset row {index + 1} has no supported training fields. "
+                "Expected 'text', 'instruction'+'output', or 'prompt'+'response'/'completion'."
+            )
 
     return Dataset.from_list(formatted_rows)
 
