@@ -52,6 +52,20 @@ class DatasetPreview:
     validation_message: str
 
 
+def _read_arrow_table(file_path: Path):
+    """Read an Arrow IPC file or stream into a PyArrow table."""
+    import pyarrow as pa
+    import pyarrow.ipc as ipc
+
+    with pa.memory_map(str(file_path), "r") as source:
+        try:
+            reader = ipc.open_file(source)
+        except pa.ArrowInvalid:
+            source.seek(0)
+            reader = ipc.open_stream(source)
+        return reader.read_all()
+
+
 def inspect_dataset_file(file_path: Path) -> LocalDatasetRecord | None:
     """Inspect a single file or directory to determine dataset properties."""
     if not file_path.exists():
@@ -112,6 +126,14 @@ def inspect_dataset_file(file_path: Path) -> LocalDatasetRecord | None:
                 columns = meta.schema.names
             except Exception:
                 pass
+
+        elif fmt == "arrow":
+            try:
+                table = _read_arrow_table(file_path)
+                row_count = table.num_rows
+                columns = table.column_names
+            except Exception as error:
+                logger.warning("Could not inspect Arrow dataset %s: %s", file_path, error)
 
         is_prepared = file_path.name.startswith("prepared_") or (
             "text" in columns or ("instruction" in columns and "output" in columns)
@@ -216,15 +238,17 @@ class DatasetService:
                         rows.append(dict(row))
             total_rows = count
 
-        elif suffix == ".parquet":
+        elif suffix in (".parquet", ".arrow"):
             try:
-                import pyarrow.parquet as pq
+                if suffix == ".parquet":
+                    import pyarrow.parquet as pq
 
-                table = pq.read_table(file_path)
+                    table = pq.read_table(file_path)
+                else:
+                    table = _read_arrow_table(file_path)
                 columns = table.column_names
                 total_rows = table.num_rows
-                slice_table = table.slice(0, num_rows)
-                rows = slice_table.to_pylist()
+                rows = table.slice(0, num_rows).to_pylist()
             except Exception as error:
                 return DatasetPreview(
                     columns=[],
@@ -232,7 +256,7 @@ class DatasetService:
                     total_rows=None,
                     format=fmt,
                     is_valid_for_training=False,
-                    validation_message=f"Failed to read Parquet: {error}",
+                    validation_message=f"Failed to read {fmt.upper()} dataset: {error}",
                 )
 
         col_set = set(columns)
@@ -336,10 +360,13 @@ class DatasetService:
                         out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
                         rows_written += 1
 
-            elif fmt == "parquet":
-                import pyarrow.parquet as pq
+            elif fmt in ("parquet", "arrow"):
+                if fmt == "parquet":
+                    import pyarrow.parquet as pq
 
-                table = pq.read_table(source_path)
+                    table = pq.read_table(source_path)
+                else:
+                    table = _read_arrow_table(source_path)
                 pylist = table.to_pylist()
                 for row in pylist:
                     inst = str(row.get(instruction_col, "") or "")
