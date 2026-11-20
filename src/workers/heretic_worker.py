@@ -124,6 +124,10 @@ def run_worker(cfg: dict) -> int:
     export_strategy = cfg.get("export_strategy", "merge")
     output_dir = Path(cfg.get("output_dir", "outputs/heretic_model")).resolve()
     seed = int(cfg.get("seed", 42))
+    if export_strategy not in {"merge", "adapter"}:
+        emit("error", job_id, {"message": "Export strategy must be 'merge' or 'adapter'."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
 
     emit("hello", payload={"role": "heretic-worker", "pid": os.getpid()})
     start_cancel_listener(job_id)
@@ -148,7 +152,7 @@ def run_worker(cfg: dict) -> int:
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
     toml_content = f"""
-model = "{model_name}"
+model = {json.dumps(model_name)}
 quantization = "bnb_4bit"
 batch_size = 2
 max_response_length = 32
@@ -160,12 +164,12 @@ modified_model_type = "abliterated"
 modifiers = [
     {{ plugin = "heretic.modifiers.abliteration.Abliteration" }},
 ]
-export_strategy = "{export_strategy}"
+export_strategy = {json.dumps(export_strategy)}
 checkpoint_action = "restart"
 trial_index = 0
 model_action = "save"
-save_directory = "{output_dir.as_posix()}"
-study_checkpoint_dir = "{checkpoints_dir.as_posix()}"
+save_directory = {json.dumps(output_dir.as_posix())}
+study_checkpoint_dir = {json.dumps(checkpoints_dir.as_posix())}
 
 [[response_prefix_test_prompts]]
 dataset = "mlabonne/harmless_alpaca"
