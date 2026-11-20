@@ -312,53 +312,69 @@ class TrainingTab(TabPage):
             self._state.notify("error", f"Cannot start training: {error}")
             return
 
-        self._active_job_id = job.job_id
-        self._pending_completion = None
-        self.start_button.setEnabled(False)
-        self.cancel_button.setEnabled(True)
-        self.progress_bar.setValue(0)
-        self.log_view.clear()
-        self.step_label.setText("Step: 0")
-        self.loss_label.setText("Loss: —")
-
-        outputs_dir = self._storage.path_for("outputs_dir") / f"unsloth_{job.job_id}"
-        outputs_dir.mkdir(parents=True, exist_ok=True)
-
         try:
-            lr_val = float(self.lr_edit.text().strip())
-        except ValueError:
-            lr_val = 2e-4
+            self._active_job_id = job.job_id
+            self._pending_completion = None
+            self.start_button.setEnabled(False)
+            self.cancel_button.setEnabled(True)
+            self.progress_bar.setValue(0)
+            self.log_view.clear()
+            self.step_label.setText("Step: 0")
+            self.loss_label.setText("Loss: —")
+    
+            outputs_dir = self._storage.path_for("outputs_dir") / f"unsloth_{job.job_id}"
+            outputs_dir.mkdir(parents=True, exist_ok=True)
+    
+            try:
+                lr_val = float(self.lr_edit.text().strip())
+            except ValueError:
+                lr_val = 2e-4
+    
+            config_data = {
+                "job_id": job.job_id,
+                "model_name": model_name,
+                "dataset_path": dataset_path,
+                "output_dir": str(outputs_dir),
+                "max_steps": self.steps_spin.value(),
+                "max_seq_length": self.seq_spin.value(),
+                "batch_size": self.batch_spin.value(),
+                "learning_rate": lr_val,
+                "lora_r": self.r_spin.value(),
+                "lora_alpha": self.alpha_spin.value(),
+            }
+    
+            scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
+            scratch_dir.mkdir(parents=True, exist_ok=True)
+    
+            worker = WorkerProcess(
+                interpreter=interpreter,
+                script=worker_script,
+                args=["--config", json.dumps(config_data)],
+                cwd=scratch_dir,
+                parent=self,
+            )
+            self._active_worker = worker
+    
+            worker.started.connect(self._on_worker_started)
+            worker.message_received.connect(self._on_worker_message)
+            worker.exited.connect(self._on_worker_exited)
+            worker.failed_to_start.connect(self._on_worker_failed_to_start)
+            worker.start()
+        except Exception as error:
+            self._handle_setup_failure(job.job_id, error)
 
-        config_data = {
-            "job_id": job.job_id,
-            "model_name": model_name,
-            "dataset_path": dataset_path,
-            "output_dir": str(outputs_dir),
-            "max_steps": self.steps_spin.value(),
-            "max_seq_length": self.seq_spin.value(),
-            "batch_size": self.batch_spin.value(),
-            "learning_rate": lr_val,
-            "lora_r": self.r_spin.value(),
-            "lora_alpha": self.alpha_spin.value(),
-        }
-
-        scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
-        scratch_dir.mkdir(parents=True, exist_ok=True)
-
-        worker = WorkerProcess(
-            interpreter=interpreter,
-            script=worker_script,
-            args=["--config", json.dumps(config_data)],
-            cwd=scratch_dir,
-            parent=self,
+    def _handle_setup_failure(self, job_id: str, error: Exception) -> None:
+        """Fail a job whose worker could not be prepared or started."""
+        self._job_manager.mark_failed(
+            job_id,
+            message=f"Could not prepare training job: {error}",
         )
-        self._active_worker = worker
-
-        worker.started.connect(self._on_worker_started)
-        worker.message_received.connect(self._on_worker_message)
-        worker.exited.connect(self._on_worker_exited)
-        worker.failed_to_start.connect(self._on_worker_failed_to_start)
-        worker.start()
+        self._active_job_id = None
+        self._active_worker = None
+        self._pending_completion = None
+        self.start_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
+        self._state.notify("error", f"Could not prepare training job: {error}")
 
     def _cancel_training(self) -> None:
         if self._active_job_id and self._active_worker and self._active_worker.running:
