@@ -217,6 +217,8 @@ class HereticTab(TabPage):
         status = statuses.get(HERETIC)
         if status is None:
             self.set_status("Checking Heretic", "info")
+            self.run_button.setEnabled(False)
+            self.run_button.setToolTip("Waiting for the Heretic engine check.")
             return
 
         self.engine_card.apply_status(status)
