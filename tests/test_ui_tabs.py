@@ -16,9 +16,10 @@ from services.settings_service import (
 )
 from services.storage_service import StorageService
 from ui.heretic_tab import HereticTab
-from ui.models_tab import ModelsTab
+from ui.models_tab import ModelInfoWorker, ModelsTab
 from ui.settings_dialog import SettingsDialog
 from ui.training_tab import TrainingTab
+from workers.protocol import MessageType, WorkerMessage
 
 
 def settings_with(tmp_path: Path, **paths: Path) -> AppSettings:
@@ -144,3 +145,45 @@ def test_settings_dialog_keeps_engine_paths(qapp, tmp_path: Path) -> None:
     saved = dialog.result_settings()
     assert saved is not None
     assert saved.engines.unsloth_python == str(tmp_path / "u.exe")
+
+
+def test_model_info_lookup_runs_in_background(qapp, wait_for) -> None:
+    class StubModelService:
+        def get_hub_model_info(self, repo_id: str) -> dict:
+            return {"repo_id": repo_id, "total_size_mb": 12.5, "files": [], "pipeline_tag": "text-generation"}
+
+    worker = ModelInfoWorker(StubModelService(), "org/model")
+    results = []
+    worker.info_ready.connect(lambda repo_id, info: results.append((repo_id, info)))
+    worker.start()
+    try:
+        assert wait_for(lambda: bool(results), timeout_ms=5_000)
+        assert results[0][0] == "org/model"
+        assert results[0][1]["total_size_mb"] == 12.5
+    finally:
+        worker.wait(5_000)
+
+
+def test_training_job_keeps_gpu_lock_until_process_exit(qapp, tmp_path: Path) -> None:
+    settings = settings_with(
+        tmp_path,
+        models_dir=tmp_path / "models",
+        datasets_dir=tmp_path / "datasets",
+        outputs_dir=tmp_path / "outputs",
+        hf_cache_dir=tmp_path / "cache",
+    )
+    tab = TrainingTab(AppState(), StorageService(settings))
+    job = tab._job_manager.submit("unsloth", "org/model")
+    tab._active_job_id = job.job_id
+
+    tab._on_worker_message(
+        WorkerMessage(
+            type=MessageType.JOB_COMPLETE,
+            job_id=job.job_id,
+            payload={"success": True},
+        )
+    )
+    assert tab._job_manager.gpu_owner == job.job_id
+
+    tab._on_worker_exited(0)
+    assert tab._job_manager.gpu_owner is None
