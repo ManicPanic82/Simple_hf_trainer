@@ -11,6 +11,7 @@ import contextlib
 import json
 import os
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -35,6 +36,36 @@ def emit(
     line = json.dumps(data, ensure_ascii=False)
     sys.stdout.write(line + "\n")
     sys.stdout.flush()
+
+
+def validate_dataset_path(dataset_path: str | Path | None) -> Path:
+    """Require an existing supported dataset; never substitute synthetic examples."""
+    if dataset_path is None or not str(dataset_path).strip():
+        raise ValueError("Select a prepared training dataset before starting fine-tuning.")
+    path = Path(dataset_path).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(f"Training dataset file not found: {path}")
+    if path.suffix.lower() not in {".jsonl", ".json", ".csv", ".parquet", ".arrow"}:
+        raise ValueError(f"Unsupported training dataset format: {path.suffix or 'no extension'}")
+    return path
+
+
+def start_cancel_listener(job_id: str) -> threading.Event:
+    """Read protocol cancellation messages from stdin without blocking training."""
+    cancelled = threading.Event()
+
+    def listen() -> None:
+        for line in sys.stdin:
+            try:
+                message = json.loads(line)
+            except (TypeError, ValueError):
+                continue
+            if message.get("type") == "cancel" and message.get("job_id") == job_id:
+                cancelled.set()
+                return
+
+    threading.Thread(target=listen, name="worker-cancel-listener", daemon=True).start()
+    return cancelled
 
 
 def load_dataset_file(file_path: Path):
@@ -107,6 +138,14 @@ def run_worker(cfg: dict) -> int:
     lora_alpha = int(cfg.get("lora_alpha", 16))
 
     emit("hello", payload={"role": "unsloth-worker", "pid": os.getpid()})
+    cancel_event = start_cancel_listener(job_id)
+
+    try:
+        dataset_path = validate_dataset_path(dataset_path_str)
+    except (ValueError, FileNotFoundError) as error:
+        emit("error", job_id, {"message": str(error)})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
 
     try:
         import unsloth
@@ -144,15 +183,10 @@ def run_worker(cfg: dict) -> int:
 
         emit("log", job_id, {"message": "LoRA adapters configured. Loading dataset...", "level": "info"})
 
-        if dataset_path_str and Path(dataset_path_str).is_file():
-            train_dataset = load_dataset_file(Path(dataset_path_str))
-            emit("log", job_id, {"message": f"Loaded {len(train_dataset)} samples from {dataset_path_str}", "level": "info"})
-        else:
-            emit("log", job_id, {"message": "No dataset specified; using fallback training data", "level": "warning"})
-            from datasets import Dataset
-
-            rows = [{"text": f"### Question: What is {i}+{i}?\n### Answer: {i+i}"} for i in range(32)]
-            train_dataset = Dataset.from_list(rows)
+        train_dataset = load_dataset_file(dataset_path)
+        if len(train_dataset) == 0:
+            raise ValueError(f"Training dataset is empty: {dataset_path}")
+        emit("log", job_id, {"message": f"Loaded {len(train_dataset)} samples from {dataset_path}", "level": "info"})
 
         from transformers import TrainerCallback
         from trl import SFTConfig, SFTTrainer
@@ -166,6 +200,9 @@ def run_worker(cfg: dict) -> int:
                     emit("log", job_id, {"message": f"Step {step}/{max_steps} · loss: {loss_val:.4f}", "level": "info"})
 
             def on_step_end(self, args, state, control, **kwargs):
+                if cancel_event.is_set():
+                    control.should_training_stop = True
+                    emit("log", job_id, {"message": "Cancellation acknowledged; stopping after the current training step.", "level": "warning"})
                 step = int(state.global_step)
                 frac = min(0.95, max(0.15, 0.15 + 0.8 * (step / max(1, max_steps))))
                 emit("progress", job_id, {"fraction": round(frac, 3), "step": step, "total": max_steps})
@@ -219,8 +256,10 @@ def run_worker(cfg: dict) -> int:
         elapsed = round(time.time() - start_time, 1)
 
         final_loss = float(getattr(train_result, "training_loss", float("nan")))
-        emit("log", job_id, {"message": f"Training completed in {elapsed}s with final loss {final_loss:.4f}", "level": "info"})
-        emit("progress", job_id, {"fraction": 0.98, "step": max_steps, "total": max_steps})
+        was_cancelled = cancel_event.is_set()
+        status_message = "Training cancelled after the current step." if was_cancelled else f"Training completed in {elapsed}s with final loss {final_loss:.4f}"
+        emit("log", job_id, {"message": status_message, "level": "warning" if was_cancelled else "info"})
+        emit("progress", job_id, {"fraction": 0.98, "step": int(getattr(getattr(trainer, "state", None), "global_step", max_steps)), "total": max_steps})
 
         output_dir.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(str(output_dir))
@@ -233,6 +272,9 @@ def run_worker(cfg: dict) -> int:
             "elapsed_s": elapsed,
             "artifacts": artifacts,
         })
+        if was_cancelled:
+            emit("job_complete", job_id, {"success": False, "exit_code": 130, "cancelled": True})
+            return 130
         emit("progress", job_id, {"fraction": 1.0, "step": max_steps, "total": max_steps})
         emit("job_complete", job_id, {"success": True, "exit_code": 0})
         return 0
