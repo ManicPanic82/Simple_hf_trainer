@@ -254,15 +254,21 @@ class TrainingTab(TabPage):
 
     def apply_engines(self, statuses: dict[str, EngineStatus]) -> None:
         status = statuses.get(UNSLOTH)
-        if status is not None:
-            self.engine_card.apply_status(status)
-            is_avail = status.is_available
-            has_no_active = self._active_worker is None or not self._active_worker.running
-            self.start_button.setEnabled(is_avail and has_no_active)
-            if not is_avail:
-                self.start_button.setToolTip(f"Unsloth engine unavailable: {status.detail}")
-            else:
-                self.start_button.setToolTip("Start Unsloth fine-tuning")
+        if status is None:
+            self.set_status("Checking Unsloth", "info")
+            return
+
+        self.engine_card.apply_status(status)
+        is_avail = status.is_available
+        has_no_active = self._active_worker is None or not self._active_worker.running
+        self.start_button.setEnabled(is_avail and has_no_active)
+        if is_avail:
+            self.set_status("Unsloth engine available", "ok")
+            self.start_button.setToolTip("Start Unsloth fine-tuning")
+        else:
+            level = "error" if status.badge() == "check failed" else "warn"
+            self.set_status(f"Unsloth {status.badge()}", level)
+            self.start_button.setToolTip(f"Unsloth engine unavailable: {status.detail}")
 
     def apply_job(self, job: JobSnapshot | None) -> None:
         if job is None:
