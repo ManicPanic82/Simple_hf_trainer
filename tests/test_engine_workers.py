@@ -98,7 +98,7 @@ def test_unsloth_jsonl_reports_invalid_line_number(tmp_path: Path):
     import pytest
 
     dataset_file = tmp_path / "broken.jsonl"
-    dataset_file.write_text('{"text":"valid"}\\n{invalid json}\\n', encoding="utf-8")
+    dataset_file.write_text('{"text":"valid"}\n{invalid json}\n', encoding="utf-8")
 
     with pytest.raises(ValueError, match="Invalid JSONL record at line 2"):
         load_dataset_file(dataset_file)
