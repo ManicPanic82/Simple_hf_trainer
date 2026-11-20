@@ -1,13 +1,4 @@
-<#
-.SYNOPSIS
-    1-click PowerShell launcher for Simple HF Trainer.
-#>
-Set-Location -Path $PSScriptRoot
-
-$python = Join-Path $PSScriptRoot "environments\app\Scripts\python.exe"
-if (Test-Path $python) {
-    & $python (Join-Path $PSScriptRoot "main.py") @args
-} else {
-    Write-Error "Application environment not found at environments\app. See docs/INSTALLATION.md."
-    Read-Host "Press Enter to exit"
-}
+# Launch the Simple HF Trainer desktop application using the app virtual environment
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$pythonExe = Join-Path $scriptDir 'environments\app\Scripts\python.exe'
+& $pythonExe "$scriptDir\main.py"
