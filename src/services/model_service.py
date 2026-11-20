@@ -49,29 +49,35 @@ def estimate_vram_compatibility(
     size_mb: float,
     model_format: str,
 ) -> tuple[str, str]:
-    """Return (vram_status, status_detail) for 6 GB VRAM budget."""
+    """Return a conservative 6 GB fit indicator, never a VRAM guarantee.
+
+    Parameter-count tiers are rough 4-bit weight estimates. File size alone
+    cannot establish runtime VRAM: quantization, context length, activations,
+    offloaded layers, kernels, and other GPU processes all change the result.
+    """
+    caveat = "Estimate only; actual VRAM also depends on quantization, context length, activations, and GPU headroom."
     if parameter_count is not None:
         if parameter_count <= 1_600_000_000:
-            return "ok", f"~{parameter_count / 1e9:.1f}B parameters fits comfortably in 6 GB (4-bit)"
-        if parameter_count <= 3_500_000_000:
-            return "warn", f"~{parameter_count / 1e9:.1f}B parameters requires short sequence lengths"
-        return "error", f"~{parameter_count / 1e9:.1f}B parameters likely exceeds 6 GB VRAM"
+            status, estimate = "ok", "small model; likely practical for short-context 4-bit use"
+        elif parameter_count <= 3_500_000_000:
+            status, estimate = "warn", "may fit with conservative 4-bit settings and short context"
+        else:
+            status, estimate = "error", "high risk of exceeding 6 GB during training or full-GPU loading"
+        return status, f"~{parameter_count / 1e9:.1f}B parameters: {estimate}. {caveat}"
 
     if model_format == "gguf":
-        if size_mb < 2000:
-            return "ok", f"GGUF size ({size_mb:.0f} MB) fits comfortably in 6 GB"
-        if size_mb < 4200:
-            return "warn", f"GGUF size ({size_mb:.0f} MB) tight for 6 GB"
-        return "error", f"GGUF size ({size_mb:.0f} MB) exceeds 6 GB budget"
+        return "warn", (
+            f"GGUF file is {size_mb:.0f} MB on disk; file size is not runtime VRAM usage. "
+            f"Layer offload and context settings determine GPU memory. {caveat}"
+        )
 
     if size_mb > 0:
-        if size_mb <= 2500:
-            return "ok", f"Disk footprint {size_mb:.0f} MB is within 6 GB bounds"
-        if size_mb <= 5000:
-            return "warn", f"Disk footprint {size_mb:.0f} MB is near 6 GB limit"
-        return "error", f"Disk footprint {size_mb:.0f} MB exceeds 6 GB limit"
+        return "warn", (
+            f"Model files total {size_mb:.0f} MB on disk; disk footprint cannot predict VRAM. "
+            f"Inspect model config or run a small load test. {caveat}"
+        )
 
-    return "warn", "Unknown model size; test cautiously on 6 GB hardware"
+    return "warn", f"Model size is unknown; no reliable VRAM estimate is available. {caveat}"
 
 
 def inspect_model_directory(directory: Path) -> LocalModelRecord | None:
@@ -111,8 +117,11 @@ def inspect_model_directory(directory: Path) -> LocalModelRecord | None:
             architecture=arch,
             parameter_count=None,
             size_mb=size_mb,
-            vram_status="ok",
-            status_detail=f"LoRA adapter ({size_mb:.1f} MB)",
+            vram_status="warn",
+            status_detail=(
+                f"LoRA adapter ({size_mb:.1f} MB); base-model and training settings "
+                "determine VRAM requirements."
+            ),
         )
 
     # 2. Check if it's a full model with config.json
