@@ -55,6 +55,24 @@ def test_available_engine_reports_version(tmp_path: Path) -> None:
     assert status.interpreter == interpreter
     assert calls[0][0] == str(interpreter)
     assert calls[0][1] == "-c"
+    assert calls[0][3] == "unsloth"
+
+
+def test_heretic_probe_passes_distribution_aliases(tmp_path: Path) -> None:
+    interpreter = fake_python(tmp_path)
+    calls: list[list[str]] = []
+
+    def runner(args, timeout):
+        calls.append(list(args))
+        return CommandResult(0, json.dumps({"found": True, "version": "2.1.0"}), "")
+
+    registry = registry_with(tmp_path, runner, heretic=str(interpreter))
+    status = registry.probe("heretic")
+
+    assert status.state is EngineState.AVAILABLE
+    assert status.version == "2.1.0"
+    assert calls[0][3] == "heretic"
+    assert "heretic-llm" in calls[0][4]
 
 
 def test_package_present_without_version_metadata(tmp_path: Path) -> None:

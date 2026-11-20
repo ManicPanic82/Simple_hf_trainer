@@ -27,6 +27,8 @@ UNSLOTH = "unsloth"
 HERETIC = "heretic"
 ENGINE_IDS = (UNSLOTH, HERETIC)
 _ENGINE_MODULES = {UNSLOTH: "unsloth", HERETIC: "heretic"}
+# The importable module name is not always the distribution name (heretic-llm).
+_ENGINE_DISTRIBUTIONS = {UNSLOTH: ("unsloth",), HERETIC: ("heretic-llm", "heretic")}
 _ENV_VARS = {
     UNSLOTH: "SIMPLE_HF_TRAINER_UNSLOTH_PYTHON",
     HERETIC: "SIMPLE_HF_TRAINER_HERETIC_PYTHON",
@@ -40,6 +42,7 @@ import json
 import sys
 
 module = sys.argv[1]
+distributions = [name for name in (sys.argv[2] if len(sys.argv) > 2 else "").split(",") if name]
 try:
     found = importlib.util.find_spec(module) is not None
 except Exception as error:
@@ -48,10 +51,12 @@ except Exception as error:
 
 version = None
 if found:
-    try:
-        version = metadata.version(module)
-    except Exception:
-        version = None
+    for name in [module, *distributions]:
+        try:
+            version = metadata.version(name)
+            break
+        except Exception:
+            continue
 print(json.dumps({"found": found, "version": version}))
 """
 
@@ -198,8 +203,11 @@ class EngineRegistry(QObject):
 
     def _probe_package(self, engine: str, interpreter: Path) -> EngineStatus:
         module = _ENGINE_MODULES[engine]
+        distributions = ",".join(_ENGINE_DISTRIBUTIONS[engine])
         try:
-            result = self._runner([str(interpreter), "-c", PROBE_SCRIPT, module], PROBE_TIMEOUT_S)
+            result = self._runner(
+                [str(interpreter), "-c", PROBE_SCRIPT, module, distributions], PROBE_TIMEOUT_S
+            )
         except FileNotFoundError:
             return EngineStatus(
                 engine,

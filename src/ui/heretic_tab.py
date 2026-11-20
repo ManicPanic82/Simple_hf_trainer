@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QPushButton, QWidget
+from PySide6.QtWidgets import QPushButton, QWidget
 
 from app.state import AppState
 from services.engine_registry import HERETIC, EngineStatus
@@ -44,9 +44,6 @@ class HereticTab(TabPage):
             "engine and inspect its output and logs.",
         )
         setup.add_header_widget(Pill("Compatibility testing required", "warn", setup))
-        self.model_combo = QComboBox(setup)
-        self.model_combo.addItem("No local models registered yet")
-        self.model_combo.setEnabled(False)
         setup.add(
             FieldRow("Model", "Not implemented yet — model library pending", caption_width=104)
         )
