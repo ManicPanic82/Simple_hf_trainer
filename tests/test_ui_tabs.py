@@ -187,3 +187,45 @@ def test_training_job_keeps_gpu_lock_until_process_exit(qapp, tmp_path: Path) ->
 
     tab._on_worker_exited(0)
     assert tab._job_manager.gpu_owner is None
+
+
+def test_training_setup_failure_releases_gpu_lock(qapp, tmp_path: Path) -> None:
+    settings = settings_with(
+        tmp_path,
+        models_dir=tmp_path / "models",
+        datasets_dir=tmp_path / "datasets",
+        outputs_dir=tmp_path / "outputs",
+        hf_cache_dir=tmp_path / "cache",
+    )
+    tab = TrainingTab(AppState(), StorageService(settings))
+    job = tab._job_manager.submit("unsloth", "org/model")
+    tab._active_job_id = job.job_id
+
+    tab._handle_setup_failure(job.job_id, OSError("disk unavailable"))
+
+    assert tab._job_manager.gpu_owner is None
+    assert tab._job_manager.snapshot(job.job_id).state.value == "failed"
+    assert tab._active_job_id is None
+    assert tab.start_button.isEnabled()
+    assert not tab.cancel_button.isEnabled()
+
+
+def test_heretic_setup_failure_releases_gpu_lock(qapp, tmp_path: Path) -> None:
+    settings = settings_with(
+        tmp_path,
+        models_dir=tmp_path / "models",
+        datasets_dir=tmp_path / "datasets",
+        outputs_dir=tmp_path / "outputs",
+        hf_cache_dir=tmp_path / "cache",
+    )
+    tab = HereticTab(AppState(), StorageService(settings))
+    job = tab._job_manager.submit("heretic", "org/model")
+    tab._active_job_id = job.job_id
+
+    tab._handle_setup_failure(job.job_id, OSError("disk unavailable"))
+
+    assert tab._job_manager.gpu_owner is None
+    assert tab._job_manager.snapshot(job.job_id).state.value == "failed"
+    assert tab._active_job_id is None
+    assert tab.run_button.isEnabled()
+    assert not tab.cancel_button.isEnabled()
