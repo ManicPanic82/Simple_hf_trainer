@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from workers.heretic_worker import OutputInterceptor
-from workers.unsloth_worker import load_dataset_file
+from workers.unsloth_worker import load_dataset_file, validate_dataset_path
 
 
 def test_unsloth_load_dataset_file_jsonl(tmp_path: Path):
@@ -64,3 +64,22 @@ KL divergence: 0.0125
     assert len(kls) >= 2
     assert kls[0]["value"] == 0.0093
     assert kls[1]["value"] == 0.0125
+
+
+def test_unsloth_requires_an_existing_training_dataset(tmp_path: Path):
+    import pytest
+
+    with pytest.raises(ValueError, match="Select a prepared training dataset"):
+        validate_dataset_path("")
+
+    with pytest.raises(FileNotFoundError, match="not found"):
+        validate_dataset_path(tmp_path / "missing.jsonl")
+
+    unsupported = tmp_path / "dataset.txt"
+    unsupported.write_text("not a supported dataset", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsupported training dataset format"):
+        validate_dataset_path(unsupported)
+
+    valid = tmp_path / "dataset.jsonl"
+    valid.write_text('{"text":"hello"}\\n', encoding="utf-8")
+    assert validate_dataset_path(valid) == valid
