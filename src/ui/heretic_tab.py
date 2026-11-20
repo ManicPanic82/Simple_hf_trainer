@@ -261,45 +261,61 @@ class HereticTab(TabPage):
             self._state.notify("error", f"Cannot start Heretic: {error}")
             return
 
-        self._active_job_id = job.job_id
-        self._pending_completion = None
-        self.run_button.setEnabled(False)
-        self.cancel_button.setEnabled(True)
-        self.progress_bar.setValue(0)
-        self.log_view.clear()
-        self.trial_metric_label.setText("Trial: 0")
-        self.refusal_metric_label.setText("Refusal: —")
-        self.kl_metric_label.setText("KL Div: —")
+        try:
+            self._active_job_id = job.job_id
+            self._pending_completion = None
+            self.run_button.setEnabled(False)
+            self.cancel_button.setEnabled(True)
+            self.progress_bar.setValue(0)
+            self.log_view.clear()
+            self.trial_metric_label.setText("Trial: 0")
+            self.refusal_metric_label.setText("Refusal: —")
+            self.kl_metric_label.setText("KL Div: —")
+    
+            outputs_dir = self._storage.path_for("outputs_dir") / f"heretic_{job.job_id}"
+            outputs_dir.mkdir(parents=True, exist_ok=True)
+    
+            config_data = {
+                "job_id": job.job_id,
+                "model_name": model_name,
+                "trials": self.trials_spin.value(),
+                "export_strategy": self.export_combo.currentText(),
+                "output_dir": str(outputs_dir / "model"),
+                "seed": 42,
+            }
+    
+            scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
+            scratch_dir.mkdir(parents=True, exist_ok=True)
+    
+            worker = WorkerProcess(
+                interpreter=interpreter,
+                script=worker_script,
+                args=["--config", json.dumps(config_data)],
+                cwd=scratch_dir,
+                parent=self,
+            )
+            self._active_worker = worker
+    
+            worker.started.connect(self._on_worker_started)
+            worker.message_received.connect(self._on_worker_message)
+            worker.exited.connect(self._on_worker_exited)
+            worker.failed_to_start.connect(self._on_worker_failed_to_start)
+            worker.start()
+        except Exception as error:
+            self._handle_setup_failure(job.job_id, error)
 
-        outputs_dir = self._storage.path_for("outputs_dir") / f"heretic_{job.job_id}"
-        outputs_dir.mkdir(parents=True, exist_ok=True)
-
-        config_data = {
-            "job_id": job.job_id,
-            "model_name": model_name,
-            "trials": self.trials_spin.value(),
-            "export_strategy": self.export_combo.currentText(),
-            "output_dir": str(outputs_dir / "model"),
-            "seed": 42,
-        }
-
-        scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
-        scratch_dir.mkdir(parents=True, exist_ok=True)
-
-        worker = WorkerProcess(
-            interpreter=interpreter,
-            script=worker_script,
-            args=["--config", json.dumps(config_data)],
-            cwd=scratch_dir,
-            parent=self,
+    def _handle_setup_failure(self, job_id: str, error: Exception) -> None:
+        """Fail a job whose worker could not be prepared or started."""
+        self._job_manager.mark_failed(
+            job_id,
+            message=f"Could not prepare Heretic job: {error}",
         )
-        self._active_worker = worker
-
-        worker.started.connect(self._on_worker_started)
-        worker.message_received.connect(self._on_worker_message)
-        worker.exited.connect(self._on_worker_exited)
-        worker.failed_to_start.connect(self._on_worker_failed_to_start)
-        worker.start()
+        self._active_job_id = None
+        self._active_worker = None
+        self._pending_completion = None
+        self.run_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
+        self._state.notify("error", f"Could not prepare Heretic job: {error}")
 
     def _cancel_heretic(self) -> None:
         if self._active_job_id and self._active_worker and self._active_worker.running:
