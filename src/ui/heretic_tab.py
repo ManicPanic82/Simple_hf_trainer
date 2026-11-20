@@ -54,6 +54,7 @@ class HereticTab(TabPage):
 
         self._active_worker: WorkerProcess | None = None
         self._active_job_id: str | None = None
+        self._pending_completion: tuple[bool, str] | None = None
 
         # --- Engine Status Card ---
         self.engine_card = EngineCard(
@@ -261,6 +262,7 @@ class HereticTab(TabPage):
             return
 
         self._active_job_id = job.job_id
+        self._pending_completion = None
         self.run_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.progress_bar.setValue(0)
@@ -302,9 +304,15 @@ class HereticTab(TabPage):
     def _cancel_heretic(self) -> None:
         if self._active_job_id and self._active_worker and self._active_worker.running:
             self._job_manager.request_cancel(self._active_job_id)
-            self._active_worker.stop()
+            sent = self._active_worker.request_cancel(self._active_job_id)
             self.cancel_button.setEnabled(False)
-            self._state.notify("info", "Heretic cancellation requested.")
+            if sent:
+                self._state.notify(
+                    "info",
+                    "Cancellation requested. Heretic has up to 10 seconds to stop cleanly before it is terminated.",
+                )
+            else:
+                self._state.notify("warning", "The cancellation request could not be sent; waiting for worker exit.")
 
     def _on_worker_started(self) -> None:
         if self._active_job_id and self._active_worker:
@@ -338,19 +346,33 @@ class HereticTab(TabPage):
 
         elif msg.type is MessageType.JOB_COMPLETE:
             success = bool(payload.get("success", False))
-            if self._active_job_id:
-                if success:
-                    self._job_manager.mark_succeeded(self._active_job_id, message="Heretic abliteration completed.")
-                    self._model_service.scan_local_models()
-                    self._state.notify("info", "Heretic abliteration completed successfully!")
-                else:
-                    self._job_manager.mark_failed(self._active_job_id, message="Heretic finished with error.")
+            message = str(payload.get("message") or (
+                "Heretic abliteration completed." if success else "Heretic finished with error."
+            ))
+            self._pending_completion = (success, message)
 
     def _on_worker_exited(self, exit_code: int) -> None:
         if self._active_job_id:
-            self._job_manager.handle_worker_exit(self._active_job_id, exit_code)
+            job_id = self._active_job_id
+            snapshot = self._job_manager.snapshot(job_id)
+            completion = self._pending_completion
+            if snapshot is not None and snapshot.state.value == "cancelling":
+                self._job_manager.handle_worker_exit(job_id, exit_code)
+            elif completion is not None and completion[0] and exit_code == 0:
+                self._job_manager.mark_succeeded(job_id, message=completion[1])
+                self._model_service.scan_local_models()
+                self._state.notify("info", "Heretic abliteration completed successfully!")
+            elif completion is not None:
+                self._job_manager.mark_failed(
+                    job_id,
+                    message=completion[1],
+                    exit_code=exit_code,
+                )
+            else:
+                self._job_manager.handle_worker_exit(job_id, exit_code)
             self._active_job_id = None
             self._active_worker = None
+            self._pending_completion = None
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
@@ -359,6 +381,7 @@ class HereticTab(TabPage):
             self._job_manager.mark_failed(self._active_job_id, message=f"Failed to start: {error}")
             self._active_job_id = None
             self._active_worker = None
+            self._pending_completion = None
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self._state.notify("error", f"Heretic worker failed to start: {error}")
