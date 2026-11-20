@@ -58,6 +58,7 @@ class TrainingTab(TabPage):
 
         self._active_worker: WorkerProcess | None = None
         self._active_job_id: str | None = None
+        self._pending_completion: tuple[bool, str] | None = None
 
         # --- Engine Status Card ---
         self.engine_card = EngineCard(
@@ -306,6 +307,7 @@ class TrainingTab(TabPage):
             return
 
         self._active_job_id = job.job_id
+        self._pending_completion = None
         self.start_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.progress_bar.setValue(0)
@@ -355,9 +357,15 @@ class TrainingTab(TabPage):
     def _cancel_training(self) -> None:
         if self._active_job_id and self._active_worker and self._active_worker.running:
             self._job_manager.request_cancel(self._active_job_id)
-            self._active_worker.send(WorkerMessage(type=MessageType.CANCEL, job_id=self._active_job_id))
+            sent = self._active_worker.request_cancel(self._active_job_id)
             self.cancel_button.setEnabled(False)
-            self._state.notify("info", "Cancellation requested. Waiting for engine to release GPU...")
+            if sent:
+                self._state.notify(
+                    "info",
+                    "Cancellation requested. The worker has up to 10 seconds to stop cleanly before it is terminated.",
+                )
+            else:
+                self._state.notify("warning", "The cancellation request could not be sent; waiting for worker exit.")
 
     def _on_worker_started(self) -> None:
         if self._active_job_id and self._active_worker:
@@ -389,19 +397,33 @@ class TrainingTab(TabPage):
 
         elif msg.type is MessageType.JOB_COMPLETE:
             success = bool(payload.get("success", False))
-            if self._active_job_id:
-                if success:
-                    self._job_manager.mark_succeeded(self._active_job_id, message="Training completed successfully.")
-                    self._model_service.scan_local_models()
-                    self._state.notify("info", "LoRA fine-tuning completed successfully!")
-                else:
-                    self._job_manager.mark_failed(self._active_job_id, message="Training finished with error.")
+            message = str(payload.get("message") or (
+                "Training completed successfully." if success else "Training finished with error."
+            ))
+            self._pending_completion = (success, message)
 
     def _on_worker_exited(self, exit_code: int) -> None:
         if self._active_job_id:
-            self._job_manager.handle_worker_exit(self._active_job_id, exit_code)
+            job_id = self._active_job_id
+            snapshot = self._job_manager.snapshot(job_id)
+            completion = self._pending_completion
+            if snapshot is not None and snapshot.state.value == "cancelling":
+                self._job_manager.handle_worker_exit(job_id, exit_code)
+            elif completion is not None and completion[0] and exit_code == 0:
+                self._job_manager.mark_succeeded(job_id, message=completion[1])
+                self._model_service.scan_local_models()
+                self._state.notify("info", "LoRA fine-tuning completed successfully!")
+            elif completion is not None:
+                self._job_manager.mark_failed(
+                    job_id,
+                    message=completion[1],
+                    exit_code=exit_code,
+                )
+            else:
+                self._job_manager.handle_worker_exit(job_id, exit_code)
             self._active_job_id = None
             self._active_worker = None
+            self._pending_completion = None
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
@@ -410,6 +432,7 @@ class TrainingTab(TabPage):
             self._job_manager.mark_failed(self._active_job_id, message=f"Failed to start: {error}")
             self._active_job_id = None
             self._active_worker = None
+            self._pending_completion = None
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self._state.notify("error", f"Unsloth worker failed to start: {error}")
