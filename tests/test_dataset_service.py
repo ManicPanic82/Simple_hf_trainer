@@ -108,3 +108,43 @@ def test_search_hub_datasets_mocked(tmp_path: Path, monkeypatch):
     assert results[0].repo_id == "tatsu-lab/alpaca"
     assert results[0].author == "tatsu-lab"
     assert results[0].downloads == 250000
+
+
+def test_arrow_dataset_inspection_preview_and_preparation(tmp_path: Path):
+    pa = __import__("pytest").importorskip("pyarrow")
+    import pyarrow.ipc as ipc
+
+    source = tmp_path / "sample.arrow"
+    table = pa.Table.from_pylist(
+        [
+            {"instruction": "What is 2+2?", "input": "", "output": "4"},
+            {"instruction": "Name a colour", "input": "", "output": "Blue"},
+        ]
+    )
+    with pa.OSFile(str(source), "wb") as sink:
+        with ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table)
+
+    record = inspect_dataset_file(source)
+    assert record is not None
+    assert record.format == "arrow"
+    assert record.row_count == 2
+    assert "instruction" in record.columns
+
+    service = DatasetService(StorageService(AppSettings()))
+    preview = service.preview_dataset(source, num_rows=1)
+    assert preview.total_rows == 2
+    assert len(preview.rows) == 1
+    assert preview.is_valid_for_training is True
+
+    output = tmp_path / "prepared_arrow.jsonl"
+    service.prepare_dataset(
+        source,
+        output_path=output,
+        instruction_col="instruction",
+        input_col="input",
+        output_col="output",
+    )
+    records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 2
+    assert records[0]["output"] == "4"
