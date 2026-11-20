@@ -45,6 +45,24 @@ class ModelSearchWorker(QThread):
             self.search_failed.emit(str(error))
 
 
+class ModelInfoWorker(QThread):
+    """Fetch selected model metadata without blocking the Qt event loop."""
+
+    info_ready = Signal(str, dict)
+    info_failed = Signal(str, str)
+
+    def __init__(self, service: ModelService, repo_id: str, parent=None):
+        super().__init__(parent)
+        self.service = service
+        self.repo_id = repo_id
+
+    def run(self) -> None:
+        try:
+            self.info_ready.emit(self.repo_id, self.service.get_hub_model_info(self.repo_id))
+        except Exception as error:
+            self.info_failed.emit(self.repo_id, str(error))
+
+
 class ModelDownloadWorker(QThread):
     """Background worker for downloading a model snapshot."""
 
@@ -90,6 +108,7 @@ class ModelsTab(TabPage):
         self._service = model_service or ModelService(storage)
         self._search_worker: ModelSearchWorker | None = None
         self._download_worker: ModelDownloadWorker | None = None
+        self._info_workers: list[ModelInfoWorker] = []
         self._selected_hub_model: HubModelRecord | None = None
         self._selected_local_model: LocalModelRecord | None = None
         self._local_models: list[LocalModelRecord] = []
@@ -288,17 +307,37 @@ class ModelsTab(TabPage):
         self.download_button.setEnabled(True)
         self.download_status_label.setText("")
 
-        # Fetch details in background or fast peek
-        try:
-            info = self._service.get_hub_model_info(rec.repo_id)
-            size_mb = info["total_size_mb"]
-            files_count = len(info["files"])
-            self.hub_files_row.set_value(f"{files_count} files ({size_mb:.1f} MB)")
-            self.compat_model_row.set_value(rec.repo_id)
-            self.compat_arch_row.set_value(info["pipeline_tag"])
-            self.compat_assessment_row.set_value(info["vram_detail"])
-        except Exception:
-            self.hub_files_row.set_value("Metadata available after download")
+        self.hub_files_row.set_value("Loading model metadata…")
+        self.compat_model_row.set_value(rec.repo_id)
+        self.compat_arch_row.set_value("Checking Hub metadata…")
+        self.compat_assessment_row.set_value("Estimating memory requirements…")
+
+        worker = ModelInfoWorker(self._service, rec.repo_id, self)
+        self._info_workers.append(worker)
+        worker.info_ready.connect(self._on_hub_model_info)
+        worker.info_failed.connect(self._on_hub_model_info_failed)
+        worker.finished.connect(lambda worker=worker: self._discard_info_worker(worker))
+        worker.start()
+
+    def _discard_info_worker(self, worker: ModelInfoWorker) -> None:
+        if worker in self._info_workers:
+            self._info_workers.remove(worker)
+
+    def _on_hub_model_info(self, repo_id: str, info: dict) -> None:
+        if self._selected_hub_model is None or self._selected_hub_model.repo_id != repo_id:
+            return
+        size_mb = info.get("total_size_mb", 0.0)
+        files_count = len(info.get("files", []))
+        self.hub_files_row.set_value(f"{files_count} files ({size_mb:.1f} MB)")
+        self.compat_arch_row.set_value(info.get("pipeline_tag") or "Unknown")
+        self.compat_assessment_row.set_value(info.get("vram_detail") or "Runtime memory estimate unavailable")
+
+    def _on_hub_model_info_failed(self, repo_id: str, error: str) -> None:
+        if self._selected_hub_model is None or self._selected_hub_model.repo_id != repo_id:
+            return
+        self.hub_files_row.set_value("Metadata unavailable")
+        self.compat_arch_row.set_value("—")
+        self.compat_assessment_row.set_value(f"Could not retrieve model metadata: {error}")
 
     def _start_download(self) -> None:
         if not self._selected_hub_model:
