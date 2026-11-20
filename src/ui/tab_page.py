@@ -38,7 +38,7 @@ class TabPage(QWidget):
         self.title_label.setObjectName("TabTitle")
         header.addWidget(self.title_label)
 
-        self.status_pill = Pill("Not implemented yet", "warn", self)
+        self.status_pill = Pill("Initialising…", "info", self)
         header.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignVCenter)
         header.addStretch(1)
         self.header = header
@@ -71,6 +71,10 @@ class TabPage(QWidget):
     def finish(self) -> None:
         """Append a trailing stretch once all cards are added."""
         self.content.addStretch(1)
+
+    def set_status(self, text: str, level: str = "info") -> None:
+        """Show the current tab readiness without implying unfinished UI is complete."""
+        self.status_pill.set_state(level, text)
 
     def add_header_widget(self, widget: QWidget) -> QWidget:
         self.header.addWidget(widget)
