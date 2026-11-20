@@ -81,5 +81,5 @@ def test_unsloth_requires_an_existing_training_dataset(tmp_path: Path):
         validate_dataset_path(unsupported)
 
     valid = tmp_path / "dataset.jsonl"
-    valid.write_text('{"text":"hello"}\\n', encoding="utf-8")
+    valid.write_text('{"text":"hello"}\n', encoding="utf-8")
     assert validate_dataset_path(valid) == valid
