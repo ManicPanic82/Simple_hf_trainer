@@ -166,6 +166,9 @@ def test_unsloth_cancel_listener_starts_after_engine_import(monkeypatch, tmp_pat
         def save_pretrained(self, path):  # pragma: no cover - stub
             pass
 
+        def save_pretrained_merged(self, path, tokenizer, save_method="merged_16bit"):
+            events.append(f"merge:{save_method}")
+
     class FakeTokenizer:
         def save_pretrained(self, path):  # pragma: no cover - stub
             pass
@@ -235,5 +238,6 @@ def test_unsloth_cancel_listener_starts_after_engine_import(monkeypatch, tmp_pat
     assert "engine_import" in events
     assert "listener" in events
     assert "train" in events
+    assert "merge:merged_16bit" in events  # default export bakes in the adapter
     assert events.index("engine_import") < events.index("listener") < events.index("train")
     assert {"hello", "ready", "job_complete"}.issubset(set(emitted))

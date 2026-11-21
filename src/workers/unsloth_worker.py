@@ -189,6 +189,18 @@ def run_worker(cfg: dict) -> int:
     grad_accum = int(cfg.get("gradient_accumulation_steps", 1))
     lora_r = int(cfg.get("lora_r", 8))
     lora_alpha = int(cfg.get("lora_alpha", 16))
+    # "merged_16bit" bakes the LoRA weights into a full fp16 model that can be
+    # selected as the base for a later continued-training job. "adapter" keeps
+    # the small PEFT adapter only (the previous behaviour).
+    export_strategy = str(cfg.get("export_strategy", "merged_16bit"))
+    if export_strategy not in {"merged_16bit", "adapter"}:
+        emit(
+            "error",
+            job_id,
+            {"message": f"Unsupported export_strategy: {export_strategy!r}"},
+        )
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
 
     print("[checkpoint] Before HELLO", file=sys.stderr, flush=True)
     emit("hello", payload={"role": "unsloth-worker", "pid": os.getpid()})
@@ -420,11 +432,34 @@ def run_worker(cfg: dict) -> int:
         )
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        print("[checkpoint] Before saving model", file=sys.stderr, flush=True)
-        model.save_pretrained(str(output_dir))
-        print("[checkpoint] Model saved", file=sys.stderr, flush=True)
-        tokenizer.save_pretrained(str(output_dir))
-        print("[checkpoint] Tokenizer saved", file=sys.stderr, flush=True)
+        if export_strategy == "merged_16bit":
+            # Unsloth dequantizes the 4-bit base and folds in the LoRA weights,
+            # producing a normal fp16 checkpoint. That checkpoint is discovered
+            # as a base model, so it can be selected as the starting point for a
+            # subsequent continued-training job.
+            print("[checkpoint] Before merged model save", file=sys.stderr, flush=True)
+            emit(
+                "log",
+                job_id,
+                {
+                    "message": "Merging LoRA adapters into the model and saving a 16-bit checkpoint...",
+                    "level": "info",
+                },
+            )
+            merge_saver = getattr(model, "save_pretrained_merged", None)
+            if not callable(merge_saver):
+                raise RuntimeError(
+                    "This Unsloth build does not expose save_pretrained_merged; "
+                    "cannot produce a merged model."
+                )
+            merge_saver(str(output_dir), tokenizer, save_method="merged_16bit")
+            print("[checkpoint] Merged model saved", file=sys.stderr, flush=True)
+        else:
+            print("[checkpoint] Before saving adapter", file=sys.stderr, flush=True)
+            model.save_pretrained(str(output_dir))
+            print("[checkpoint] Adapter saved", file=sys.stderr, flush=True)
+            tokenizer.save_pretrained(str(output_dir))
+            print("[checkpoint] Tokenizer saved", file=sys.stderr, flush=True)
 
         artifacts = [p.name for p in output_dir.iterdir() if p.is_file()]
         emit(
@@ -435,6 +470,7 @@ def run_worker(cfg: dict) -> int:
                 "final_loss": final_loss,
                 "elapsed_s": elapsed,
                 "artifacts": artifacts,
+                "export_strategy": export_strategy,
             },
         )
         if was_cancelled:

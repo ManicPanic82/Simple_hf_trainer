@@ -159,3 +159,23 @@ def test_no_advisory_when_model_and_gpu_are_known(qapp, tmp_path: Path) -> None:
     state.models = [known_model]
 
     assert tab._compatibility_advisory(str(known_model.path)) is None
+
+
+def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
+    tab = _make_tab(
+        tmp_path,
+        job_manager=MagicMock(),
+        model_service=MagicMock(),
+        state=MagicMock(),
+    )
+    assert tab.export_combo.count() == 2
+    assert tab.export_combo.currentData() == "merged_16bit"
+
+    dataset = tmp_path / "data.jsonl"
+    dataset.write_text('{"text":"hi"}\n', encoding="utf-8")
+    cfg = tab._build_config("job-x", "a-model", str(dataset))
+    assert cfg["export_strategy"] == "merged_16bit"
+
+    tab.export_combo.setCurrentIndex(1)
+    cfg = tab._build_config("job-y", "a-model", str(dataset))
+    assert cfg["export_strategy"] == "adapter"

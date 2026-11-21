@@ -132,6 +132,19 @@ class TrainingTab(TabPage):
         self.alpha_spin.setValue(16)
         grid.addWidget(self.alpha_spin, 4, 3)
 
+        # Export strategy. A merged fp16 model can be picked as the base model
+        # for a later continued-training job; adapter-only stays small.
+        grid.addWidget(QLabel("Export:", cfg_card), 5, 0)
+        self.export_combo = QComboBox(cfg_card)
+        self.export_combo.addItem("Merged model (16-bit) — reusable base", "merged_16bit")
+        self.export_combo.addItem("Adapter only (LoRA)", "adapter")
+        self.export_combo.setToolTip(
+            "Merged saves a full 16-bit model with the training baked in, so it can be "
+            "selected as the base model for continued training. It needs several GB of "
+            "disk space and RAM. Adapter only saves the small LoRA modules."
+        )
+        grid.addWidget(self.export_combo, 5, 1, 1, 3)
+
         cfg_card.add_layout(grid)
         self.add(cfg_card)
 
@@ -401,6 +414,7 @@ class TrainingTab(TabPage):
             "learning_rate": lr_val,
             "lora_r": self.r_spin.value(),
             "lora_alpha": self.alpha_spin.value(),
+            "export_strategy": self.export_combo.currentData() or "merged_16bit",
         }
 
     def _connect_queue_signal(self) -> None:
