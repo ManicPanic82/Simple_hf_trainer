@@ -256,7 +256,12 @@ class MainWindow(QMainWindow):
             )
         )
 
-        for tab in (self.training_tab, self.heretic_tab):
+        for tab in (
+            self.training_tab,
+            self.heretic_tab,
+            self.models_tab,
+            self.datasets_tab,
+        ):
             request_shutdown = getattr(tab, "request_shutdown", None)
             if callable(request_shutdown):
                 request_shutdown()
@@ -294,8 +299,17 @@ class MainWindow(QMainWindow):
             )
         )
 
-        for tab in (self.training_tab, self.heretic_tab):
+        for tab in (
+            self.training_tab,
+            self.heretic_tab,
+            self.models_tab,
+            self.datasets_tab,
+        ):
             self._force_stop_worker(tab)
+            request_shutdown = getattr(tab, "request_shutdown", None)
+            if callable(request_shutdown):
+                with suppress(Exception):
+                    request_shutdown()
 
         # A forced worker may still report as running; bypass that check so the
         # window closes even when a forced stop fails or is unavailable.

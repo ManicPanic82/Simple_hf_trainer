@@ -185,7 +185,12 @@ def test_settings_dialog_keeps_engine_paths(qapp, tmp_path: Path) -> None:
 def test_model_info_lookup_runs_in_background(qapp, wait_for) -> None:
     class StubModelService:
         def get_hub_model_info(self, repo_id: str) -> dict:
-            return {"repo_id": repo_id, "total_size_mb": 12.5, "files": [], "pipeline_tag": "text-generation"}
+            return {
+                "repo_id": repo_id,
+                "total_size_mb": 12.5,
+                "files": [],
+                "pipeline_tag": "text-generation",
+            }
 
     worker = ModelInfoWorker(StubModelService(), "org/model")
     results = []

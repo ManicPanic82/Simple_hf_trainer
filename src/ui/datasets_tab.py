@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -489,7 +490,7 @@ class DatasetsTab(TabPage):
                 input_col=inp,
                 output_col=out,
             )
-            self._state.notify("info", f"Prepared training dataset saved to {output_file.name}")
+            self._state.notify("info", f"Prepared training dataset saved to {output_file}")
             self.scan_datasets()
         except Exception as error:
             self._state.notify("error", f"Preparation failed: {error}")
@@ -497,3 +498,16 @@ class DatasetsTab(TabPage):
     def _on_use_in_training(self) -> None:
         if self._selected_local_dataset:
             self.use_dataset_in_training.emit(str(self._selected_local_dataset.path))
+
+    def request_shutdown(self) -> None:
+        """Stop background Hub threads when the application closes."""
+        workers = [
+            worker for worker in (self._download_worker, self._search_worker) if worker is not None
+        ]
+        for worker in workers:
+            with suppress(Exception):
+                worker.requestInterruption()
+                worker.quit()
+        for worker in workers:
+            with suppress(Exception):
+                worker.wait(500)

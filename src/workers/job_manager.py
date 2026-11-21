@@ -1,4 +1,3 @@
-
 """GPU-exclusive job orchestration foundation.
 
 Unsloth and Heretic are heavyweight engines that must never hold GPU memory at

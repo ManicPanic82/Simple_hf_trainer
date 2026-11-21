@@ -1,1 +1,0 @@
-QProcess: Destroyed while process ("F:\\WORK_IN_PROGRESS\\simple_hf_trainer\\environments\\unsloth\\Scripts\\python.exe") is still running.

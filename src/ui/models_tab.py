@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from contextlib import suppress
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -380,8 +381,17 @@ class ModelsTab(TabPage):
         if self._selected_hub_model is None or self._selected_hub_model.repo_id != repo_id:
             return
         size_mb = info.get("total_size_mb", 0.0)
-        files_count = len(info.get("files", []))
+        files = info.get("files", [])
+        files_count = len(files)
         self.hub_files_row.set_value(f"{files_count} files ({size_mb:.1f} MB)")
+        # The count alone hides what will actually be downloaded; expose the
+        # repository file names on hover without cluttering the layout.
+        names = [f.get("filename", "") for f in files if isinstance(f, dict)]
+        self.hub_files_row.value.setToolTip(
+            "\n".join(names[:40]) + ("\n…" if len(names) > 40 else "")
+            if names
+            else "No file list available from the Hub"
+        )
         self.compat_arch_row.set_value(info.get("pipeline_tag") or "Unknown")
         self.compat_assessment_row.set_value(
             info.get("vram_detail") or "Runtime memory estimate unavailable"
@@ -523,3 +533,24 @@ class ModelsTab(TabPage):
     def _on_use_in_heretic(self) -> None:
         if self._selected_local_model:
             self.use_model_in_heretic.emit(str(self._selected_local_model.path))
+
+    def request_shutdown(self) -> None:
+        """Stop background Hub threads when the application closes."""
+        workers: list[QThread] = []
+        download = self._download_worker
+        if download is not None:
+            cancel = getattr(download, "cancel", None)
+            if callable(cancel):
+                with suppress(Exception):
+                    cancel()
+            workers.append(download)
+        if self._search_worker is not None:
+            workers.append(self._search_worker)
+        workers.extend(self._info_workers)
+        for worker in workers:
+            with suppress(Exception):
+                worker.requestInterruption()
+                worker.quit()
+        for worker in workers:
+            with suppress(Exception):
+                worker.wait(500)

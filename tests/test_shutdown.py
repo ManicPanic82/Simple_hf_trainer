@@ -155,3 +155,51 @@ def test_shutdown_tolerates_tabs_without_worker_attributes(window: MainWindow) -
     window._force_stop_worker(bare)  # no worker/_active_worker attribute: no-op
     window._poll_worker_shutdown()  # no worker attribute: treat as exited and close
     window.close.assert_called_once_with()
+
+
+def test_shutdown_also_stops_hub_threads(window: MainWindow) -> None:
+    window.models_tab = MagicMock()
+    window.datasets_tab = MagicMock()
+    window.training_tab.worker_running = True
+
+    window.closeEvent(_close_event())
+
+    window.models_tab.request_shutdown.assert_called_once_with()
+    window.datasets_tab.request_shutdown.assert_called_once_with()
+
+
+def test_models_tab_request_shutdown_cancels_download_and_joins_threads() -> None:
+    from ui.models_tab import ModelsTab
+
+    tab = ModelsTab.__new__(ModelsTab)
+    download = MagicMock()
+    search = MagicMock()
+    info = MagicMock()
+    tab._download_worker = download
+    tab._search_worker = search
+    tab._info_workers = [info]
+
+    ModelsTab.request_shutdown(tab)
+
+    download.cancel.assert_called_once_with()
+    for worker in (download, search, info):
+        worker.requestInterruption.assert_called_once_with()
+        worker.quit.assert_called_once_with()
+        worker.wait.assert_called_once_with(500)
+
+
+def test_datasets_tab_request_shutdown_joins_threads() -> None:
+    from ui.datasets_tab import DatasetsTab
+
+    tab = DatasetsTab.__new__(DatasetsTab)
+    search = MagicMock()
+    download = MagicMock()
+    tab._search_worker = search
+    tab._download_worker = download
+
+    DatasetsTab.request_shutdown(tab)
+
+    for worker in (search, download):
+        worker.requestInterruption.assert_called_once_with()
+        worker.quit.assert_called_once_with()
+        worker.wait.assert_called_once_with(500)
