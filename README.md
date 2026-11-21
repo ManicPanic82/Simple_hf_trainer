@@ -5,7 +5,7 @@ A local-first **Windows desktop application** for four connected workflows:
 1. **Models** — discover, download, and manage Hugging Face models.
 2. **Datasets** — find, import, preview, and prepare Hugging Face datasets.
 3. **Training** — fine-tune compatible models with the real **Unsloth** engine (LoRA/QLoRA).
-4. **Heretic** — modify compatible models with the real **Heretic** abliteration tool.
+4. **Heretic** — modify compatible models with the real **Heretic 2.x** tool (ARA, abliteration, scorer plugins and presets).
 
 It is deliberately narrow: no chat, no RAG, no agents, no inference server, no cloud
 training, no plugin framework. The GPU (a 6 GB GTX 1660 in the reference setup) is treated
@@ -28,8 +28,8 @@ and the engine workflows on this branch are ahead of that original phase boundar
 | GPU-exclusive job lifecycle | Centralised lock; completion is reconciled after the child process exits |
 | Models | Hub search, background metadata lookup, download, local library and qualified memory estimates |
 | Datasets | Hub search, local inspection, preview, preparation; JSON, JSONL, CSV, Parquet and Arrow IPC |
-| Training | Unsloth LoRA/QLoRA worker with progress, metrics, dataset validation and cooperative cancellation |
-| Heretic | Headless Heretic worker with trial metrics and cancellation interrupt |
+| Training | Unsloth LoRA/QLoRA worker with progress, metrics, dataset validation, cooperative cancellation and merged-16-bit or adapter-only export |
+| Heretic | Full 2.x config UI (modifiers, scorers, presets, Raw TOML), headless worker with trial metrics and cancellation |
 
 The compatibility report records small, real engine smoke tests on the reference GTX 1660.
 Those tests prove that the selected engine versions can execute minimal workloads; they do
@@ -69,6 +69,24 @@ py -3.12 -m venv environments\app
 The window opens even when Unsloth and Heretic are not installed; their status is reported
 honestly in the header and tab cards. Engine setup is documented in
 [`docs/INSTALLATION.md`](docs/INSTALLATION.md).
+
+### Heretic configuration
+
+The Heretic tab exposes the real Heretic 2.x `config.toml` surface:
+
+- **Presets** loaded from the bundled upstream files (`config/heretic_presets/`),
+  plus a compact 6 GB-friendly starter profile.
+- **Model & loading**: dtypes, 4-bit quantization, device map, memory limits,
+  batch size, response length, response prefix and chain-of-thought blocks.
+- **Objectives**: ARA or classic abliteration, any number of built-in or custom
+  scorer plugins with `minimize` / `maximize` / `none`, and prompt sources.
+- **Optimization / Export**: trials, seed, checkpoint behaviour, trial choice,
+  merge vs adapter export, local save or Hugging Face upload.
+- **Raw TOML**: refresh from the form, apply edits back to it, validate, and
+  open/save `config.toml` files. Anything not covered by a widget (keyword
+  marker lists, classifier settings, benchmark tasks, custom plugins) is edited here.
+
+See [`docs/HERETIC_CONFIG.md`](docs/HERETIC_CONFIG.md) for details and limitations.
 
 ## Tests and linting
 
@@ -115,6 +133,10 @@ Engine environments live under `environments/` and are **never** committed.
   other GPU processes.
 - Cancellation is cooperative first. Unsloth stops at a training-step boundary and Heretic
   receives an interrupt; an unresponsive worker is terminated after a grace period.
+- Heretic's interactive-only post-run actions (chat and benchmarks) and special modes
+  (reproduce, collect-reproducibles, evaluate-model) are not exposed in the GUI. Local
+  save and Hugging Face upload are fully headless; uploads use the token stored in
+  Windows Credential Manager via `HF_TOKEN`.
 - Model and dataset libraries are catalogued in `registry.json`, and terminal job records
   are kept in `jobs.json` under the app home. Both are best-effort local caches: a corrupt
   file is ignored and the library is rebuilt by the next scan. In-flight job state is not

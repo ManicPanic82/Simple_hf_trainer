@@ -1,24 +1,46 @@
-"""Heretic tab: training-free model modification (abliteration) via the real engine."""
+"""Heretic tab: full Heretic 2.x configuration, run monitoring and hand-off."""
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QSpinBox,
+    QTabWidget,
     QTextEdit,
+    QVBoxLayout,
     QWidget,
 )
 
 from app.state import AppState
+from services.credentials import CredentialStore
 from services.engine_registry import HERETIC, EngineRegistry, EngineStatus
+from services.heretic_config import (
+    CHECKPOINT_ACTIONS,
+    EXPORT_STRATEGIES,
+    MODEL_ACTIONS,
+    MODIFIER_LABELS,
+    OPTIMIZATIONS,
+    QUANTIZATIONS,
+    REPRODUCIBILITY,
+    SCORER_LABELS,
+    HereticConfig,
+    HereticConfigError,
+    PluginEntry,
+    available_presets,
+    load_preset,
+)
 from services.model_service import LocalModelRecord, ModelService
 from services.storage_service import Severity, StorageService
 from ui.components import Card, FieldRow, StoragePathRow
@@ -29,6 +51,23 @@ from workers.job_manager import JobManager, JobSnapshot, JobState
 from workers.protocol import MessageType, WorkerMessage
 from workers.worker_process import WorkerProcess
 
+_CUSTOM = "Custom…"
+_MODIFIER_BY_PATH = {path: label for label, path in MODIFIER_LABELS.items()}
+_MODIFIER_BY_LABEL = dict(MODIFIER_LABELS.items())
+_SCORER_BY_PATH = {path: label for label, path in SCORER_LABELS.items()}
+
+
+def _dataset_text(spec: dict) -> str:
+    return str(spec.get("dataset", "") or "")
+
+
+def _dataset_split(spec: dict) -> str:
+    return str(spec.get("split", "") or "")
+
+
+def _dataset_column(spec: dict) -> str:
+    return str(spec.get("column", "") or "")
+
 
 class HereticTab(TabPage):
     def __init__(
@@ -38,12 +77,13 @@ class HereticTab(TabPage):
         job_manager: JobManager | None = None,
         registry: EngineRegistry | None = None,
         model_service: ModelService | None = None,
+        credentials: CredentialStore | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(
             "Heretic",
-            "Modify a compatible model with the real Heretic workflow. It writes a new "
-            "model; the original files are left untouched.",
+            "Modify a compatible model with the real Heretic 2.x workflow. Every engine "
+            "setting is editable below; the original model files are left untouched.",
             parent,
         )
         self._state = state
@@ -51,12 +91,15 @@ class HereticTab(TabPage):
         self._job_manager = job_manager or JobManager(parent=self)
         self._registry = registry or EngineRegistry(storage.settings, parent=self)
         self._model_service = model_service or ModelService(storage)
+        self._credentials = credentials
 
         self._active_worker: WorkerProcess | None = None
         self._active_job_id: str | None = None
         self._pending_completion: tuple[bool, str] | None = None
         self._queued_jobs: dict[str, dict] = {}
         self._queue_connected = False
+        self._config = HereticConfig.compact()
+        self._scorer_rows: list[dict] = []
 
         # --- Engine Status Card ---
         self.engine_card = EngineCard(
@@ -67,46 +110,63 @@ class HereticTab(TabPage):
         )
         self.add(self.engine_card)
 
-        # --- Model and Setup Card ---
+        # --- Model and setup card ---
         setup = Card(
-            "Model and abliteration setup",
-            "Pick a model that fits 6 GB of VRAM, configure optimization trials, and choose export format.",
+            "Model and run profile",
+            "Pick a model, choose a starting configuration, then refine any setting in the "
+            "configuration tabs below.",
         )
-
         grid = QGridLayout()
         grid.setSpacing(10)
-
         grid.addWidget(QLabel("Target Model:", setup), 0, 0)
         self.model_combo = QComboBox(setup)
         self.model_combo.setEditable(True)
         self.model_combo.setPlaceholderText(
             "Select local model or enter HF repo (e.g. Qwen/Qwen2.5-0.5B-Instruct)"
         )
+        self.model_combo.addItem("Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-0.5B-Instruct")
+        self.model_combo.setCurrentIndex(0)
         grid.addWidget(self.model_combo, 0, 1, 1, 3)
 
-        grid.addWidget(QLabel("Optimization Trials:", setup), 1, 0)
-        self.trials_spin = QSpinBox(setup)
-        self.trials_spin.setRange(1, 100)
-        self.trials_spin.setValue(2)
-        grid.addWidget(self.trials_spin, 1, 1)
-
-        grid.addWidget(QLabel("Export Strategy:", setup), 1, 2)
-        self.export_combo = QComboBox(setup)
-        self.export_combo.addItems(["merge", "adapter"])
-        grid.addWidget(self.export_combo, 1, 3)
-
+        grid.addWidget(QLabel("Preset:", setup), 1, 0)
+        self.preset_combo = QComboBox(setup)
+        for preset_id, label in available_presets():
+            self.preset_combo.addItem(label, preset_id)
+        self._select_preset("compact")
+        grid.addWidget(self.preset_combo, 1, 1)
+        self.load_preset_button = QPushButton("Load preset", setup)
+        self.load_preset_button.clicked.connect(self._load_selected_preset)
+        grid.addWidget(self.load_preset_button, 1, 2)
+        grid.addWidget(
+            QLabel("Presets are upstream Heretic configs; edit anything after loading."), 1, 3
+        )
         setup.add_layout(grid)
 
         self.outputs_path = StoragePathRow("outputs_dir", "Output folder", setup)
         self.outputs_path.open_requested.connect(self._open_outputs)
         setup.add(self.outputs_path)
-
         self.add(setup)
 
-        # --- Control & Live Progress Card ---
+        # --- Full configuration card ---
+        config_card = Card(
+            "Heretic 2.x configuration",
+            "These are the real Heretic config.toml settings. The Raw TOML tab can edit "
+            "anything not represented by a widget, including custom scorer/modifier plugins.",
+        )
+        self.config_tabs = QTabWidget(config_card)
+        self._build_model_tab()
+        self._build_objectives_tab()
+        self._build_optimization_tab()
+        self._build_export_tab()
+        self._build_toml_tab()
+        config_card.add(self.config_tabs)
+        self.add(config_card)
+
+        # --- Control & live progress card ---
         control = Card(
-            "Abliteration control & live monitoring",
-            "Heretic optimizes weight adjustments using Optuna to minimize refusal and KL divergence.",
+            "Run control & live monitoring",
+            "Heretic benchmarks the machine, optimizes the configured scores with Optuna, "
+            "and reports each trial while it works.",
         )
         self.run_state_row = FieldRow("Job state", "Idle", caption_width=104)
         control.add(self.run_state_row)
@@ -119,9 +179,15 @@ class HereticTab(TabPage):
         self.refusal_metric_label.setObjectName("StripValue")
         self.kl_metric_label = QLabel("KL divergence: —", control)
         self.kl_metric_label.setObjectName("StripValue")
-        metrics_layout.addWidget(self.trial_metric_label)
-        metrics_layout.addWidget(self.refusal_metric_label)
-        metrics_layout.addWidget(self.kl_metric_label)
+        self.extra_metric_label = QLabel("", control)
+        self.extra_metric_label.setObjectName("StripValue")
+        for label in (
+            self.trial_metric_label,
+            self.refusal_metric_label,
+            self.kl_metric_label,
+            self.extra_metric_label,
+        ):
+            metrics_layout.addWidget(label)
         metrics_layout.addStretch(1)
         control.add_layout(metrics_layout)
 
@@ -136,7 +202,6 @@ class HereticTab(TabPage):
         self.run_button.setObjectName("Primary")
         self.run_button.clicked.connect(self._start_heretic)
         btn_row.addWidget(self.run_button)
-
         self.cancel_button = QPushButton("Cancel run", control)
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._cancel_heretic)
@@ -147,7 +212,6 @@ class HereticTab(TabPage):
         log_label = QLabel("Live Engine Log", control)
         log_label.setObjectName("SectionLabel")
         control.add(log_label)
-
         self.log_view = QTextEdit(control)
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(140)
@@ -155,18 +219,15 @@ class HereticTab(TabPage):
             "font-family: 'Cascadia Mono', Consolas, monospace; font-size: 8.5pt;"
         )
         control.add(self.log_view)
-
         self.last_model_row = FieldRow("Saved model", "None saved yet", caption_width=104)
         control.add(self.last_model_row)
-
         self.add(control)
 
         # --- Information Card ---
         notes = Card(
             "What to expect",
-            "Heretic benchmarks the machine, optimizes against refusal and divergence scores, "
-            "and reports progress while it works. Expect minutes to hours depending on the "
-            "model and the 6 GB VRAM budget.",
+            "A preset with many trials can take hours. The compact preset uses 4-bit "
+            "quantization, two trials and short prompt slices to fit a 6 GB GPU.",
         )
         notes.add(
             FieldRow(
@@ -179,11 +240,628 @@ class HereticTab(TabPage):
         self.add(notes)
 
         self.finish()
+        self.apply_config_to_form(self._config)
         self.refresh()
 
         self._state.job_changed.connect(self.apply_job)
         self._state.engines_changed.connect(self.apply_engines)
         self._state.models_changed.connect(self._update_model_choices)
+
+    # -- form construction ------------------------------------------------
+
+    def _build_model_tab(self) -> None:
+        tab = QWidget(self.config_tabs)
+        grid = QGridLayout(tab)
+        grid.setSpacing(8)
+        row = 0
+
+        def add(label: str, widget: QWidget) -> None:
+            nonlocal row
+            grid.addWidget(QLabel(label, tab), row, 0)
+            grid.addWidget(widget, row, 1, 1, 2)
+            row += 1
+
+        self.dtypes_edit = QLineEdit(tab)
+        self.dtypes_edit.setPlaceholderText("auto, float16, bfloat16, float32")
+        add("Dtypes to try:", self.dtypes_edit)
+
+        self.quant_combo = QComboBox(tab)
+        self.quant_combo.addItems(list(QUANTIZATIONS))
+        add("Quantization:", self.quant_combo)
+
+        self.device_map_edit = QLineEdit(tab)
+        add("Device map:", self.device_map_edit)
+
+        self.max_memory_edit = QLineEdit(tab)
+        self.max_memory_edit.setPlaceholderText(
+            'blank = automatic; e.g. {"0": "20GB", "cpu": "64GB"}'
+        )
+        add("Max memory (JSON):", self.max_memory_edit)
+
+        self.offload_check = QCheckBox("Move analysis tensors to CPU", tab)
+        add("Memory offload:", self.offload_check)
+
+        self.batch_spin = QSpinBox(tab)
+        self.batch_spin.setRange(0, 4096)
+        self.batch_spin.setToolTip("0 lets Heretic benchmark an optimal batch size.")
+        add("Batch size (0 = auto):", self.batch_spin)
+
+        self.max_batch_spin = QSpinBox(tab)
+        self.max_batch_spin.setRange(1, 4096)
+        add("Max batch size:", self.max_batch_spin)
+
+        self.max_response_spin = QSpinBox(tab)
+        self.max_response_spin.setRange(1, 8192)
+        add("Max response tokens:", self.max_response_spin)
+
+        self.response_prefix_edit = QLineEdit(tab)
+        self.response_prefix_edit.setPlaceholderText("blank = detect automatically")
+        add("Response prefix:", self.response_prefix_edit)
+
+        self.system_prompt_edit = QLineEdit(tab)
+        add("System prompt:", self.system_prompt_edit)
+
+        self.cot_edit = QTextEdit(tab)
+        self.cot_edit.setMaximumHeight(64)
+        self.cot_edit.setPlaceholderText("One 'initializer | finalizer' pair per line")
+        add("CoT blocks:", self.cot_edit)
+
+        self.debug_check = QCheckBox("Print torch/debug information", tab)
+        add("Debug output:", self.debug_check)
+
+        grid.setRowStretch(row, 1)
+        self.config_tabs.addTab(tab, "Model & loading")
+
+    def _build_objectives_tab(self) -> None:
+        tab = QWidget(self.config_tabs)
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(10)
+
+        modifier_row = QHBoxLayout()
+        modifier_row.addWidget(QLabel("Modifier:", tab))
+        self.modifier_combo = QComboBox(tab)
+        self.modifier_combo.addItems([*_MODIFIER_LABELS_ORDER(), _CUSTOM])
+        self.modifier_combo.currentTextChanged.connect(self._on_modifier_changed)
+        modifier_row.addWidget(self.modifier_combo, 1)
+        self.modifier_plugin_edit = QLineEdit(tab)
+        self.modifier_plugin_edit.setPlaceholderText("Custom plugin import path or file.py:Class")
+        self.modifier_plugin_edit.setEnabled(False)
+        modifier_row.addWidget(self.modifier_plugin_edit, 2)
+        layout.addLayout(modifier_row)
+
+        layout.addWidget(QLabel("Scorers (co-optimized):", tab))
+        self.scorers_layout = QVBoxLayout()
+        layout.addLayout(self.scorers_layout)
+        add_scorer = QPushButton("Add scorer", tab)
+        add_scorer.clicked.connect(lambda: self._add_scorer_row())
+        layout.addWidget(add_scorer)
+
+        layout.addWidget(QLabel("Modifier prompt sources (for the selected modifier):", tab))
+        self._prompt_fields = QGridLayout()
+        self._prompt_fields.setSpacing(6)
+        self.good_dataset_edit = QLineEdit(tab)
+        self.good_split_edit = QLineEdit(tab)
+        self.good_column_edit = QLineEdit(tab)
+        self.bad_dataset_edit = QLineEdit(tab)
+        self.bad_split_edit = QLineEdit(tab)
+        self.bad_column_edit = QLineEdit(tab)
+        self.kw_dataset_edit = QLineEdit(tab)
+        self.kw_split_edit = QLineEdit(tab)
+        self.kw_column_edit = QLineEdit(tab)
+        self.kl_dataset_edit = QLineEdit(tab)
+        self.kl_split_edit = QLineEdit(tab)
+        self.kl_column_edit = QLineEdit(tab)
+        sources = (
+            ("Good prompts", self.good_dataset_edit, self.good_split_edit, self.good_column_edit),
+            ("Bad prompts", self.bad_dataset_edit, self.bad_split_edit, self.bad_column_edit),
+            ("Keyword scorer", self.kw_dataset_edit, self.kw_split_edit, self.kw_column_edit),
+            ("KL scorer", self.kl_dataset_edit, self.kl_split_edit, self.kl_column_edit),
+        )
+        for index, (name, dataset, split, column) in enumerate(sources, start=1):
+            self._prompt_fields.addWidget(QLabel(name, tab), index, 0)
+            dataset.setPlaceholderText("dataset id or path")
+            split.setPlaceholderText("split")
+            column.setPlaceholderText("column")
+            self._prompt_fields.addWidget(dataset, index, 1, 1, 2)
+            self._prompt_fields.addWidget(split, index, 3)
+            self._prompt_fields.addWidget(column, index, 4)
+        layout.addLayout(self._prompt_fields)
+        layout.addWidget(
+            QLabel(
+                "Scorer-specific options (marker lists, classifier model, benchmark task, "
+                "prefixes) are edited in the Raw TOML tab.",
+                tab,
+            )
+        )
+        layout.addStretch(1)
+        self.config_tabs.addTab(tab, "Objectives")
+
+    def _build_optimization_tab(self) -> None:
+        tab = QWidget(self.config_tabs)
+        grid = QGridLayout(tab)
+        grid.setSpacing(8)
+        row = 0
+
+        def add(label: str, widget: QWidget) -> None:
+            nonlocal row
+            grid.addWidget(QLabel(label, tab), row, 0)
+            grid.addWidget(widget, row, 1, 1, 2)
+            row += 1
+
+        self.trials_spin = QSpinBox(tab)
+        self.trials_spin.setRange(1, 10_000)
+        add("Optimization trials:", self.trials_spin)
+
+        self.startup_spin = QSpinBox(tab)
+        self.startup_spin.setRange(0, 10_000)
+        add("Startup (random) trials:", self.startup_spin)
+
+        self.seed_edit = QLineEdit(tab)
+        self.seed_edit.setPlaceholderText("blank = random seed")
+        add("Seed:", self.seed_edit)
+
+        self.checkpoint_combo = QComboBox(tab)
+        self.checkpoint_combo.addItems(["Restart from scratch", "Continue previous run"])
+        add("Existing checkpoint:", self.checkpoint_combo)
+
+        self.trial_index_spin = QSpinBox(tab)
+        self.trial_index_spin.setRange(0, 9999)
+        self.trial_index_spin.setToolTip("Index in the sorted Pareto front to export.")
+        add("Trial to export:", self.trial_index_spin)
+
+        self.checkpoint_label = QLabel("(set by the output folder)", tab)
+        add("Study checkpoint dir:", self.checkpoint_label)
+        grid.setRowStretch(row, 1)
+        self.config_tabs.addTab(tab, "Optimization")
+
+    def _build_export_tab(self) -> None:
+        tab = QWidget(self.config_tabs)
+        grid = QGridLayout(tab)
+        grid.setSpacing(8)
+        row = 0
+
+        def add(label: str, widget: QWidget) -> None:
+            nonlocal row
+            grid.addWidget(QLabel(label, tab), row, 0)
+            grid.addWidget(widget, row, 1, 1, 2)
+            row += 1
+
+        self.export_combo = QComboBox(tab)
+        self.export_combo.addItems(list(EXPORT_STRATEGIES))
+        add("Export strategy:", self.export_combo)
+
+        self.model_action_combo = QComboBox(tab)
+        self.model_action_combo.addItems(list(MODEL_ACTIONS))
+        add("After optimization:", self.model_action_combo)
+
+        self.upload_repo_edit = QLineEdit(tab)
+        self.upload_repo_edit.setPlaceholderText("username/model-heretic")
+        add("HF repository:", self.upload_repo_edit)
+
+        self.private_check = QCheckBox("Create a private repository", tab)
+        add("Upload visibility:", self.private_check)
+
+        self.repro_combo = QComboBox(tab)
+        self.repro_combo.addItems(["(not set)", *REPRODUCIBILITY])
+        add("Reproducibility info:", self.repro_combo)
+
+        self.modified_type_edit = QLineEdit(tab)
+        add("Modified model type:", self.modified_type_edit)
+
+        self.shard_edit = QLineEdit(tab)
+        add("Max shard size:", self.shard_edit)
+
+        self.tags_edit = QLineEdit(tab)
+        self.tags_edit.setPlaceholderText("comma-separated tags")
+        add("Upload tags:", self.tags_edit)
+
+        self.shell_check = QCheckBox("Offer in-context Python shell (unrestricted)", tab)
+        add("Advanced:", self.shell_check)
+        grid.setRowStretch(row, 1)
+        self.config_tabs.addTab(tab, "Export")
+
+    def _build_toml_tab(self) -> None:
+        tab = QWidget(self.config_tabs)
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(8)
+        self.toml_view = QTextEdit(tab)
+        self.toml_view.setStyleSheet(
+            "font-family: 'Cascadia Mono', Consolas, monospace; font-size: 8.5pt;"
+        )
+        layout.addWidget(self.toml_view, 1)
+
+        buttons = QHBoxLayout()
+        refresh = QPushButton("Refresh from form", tab)
+        refresh.clicked.connect(self._refresh_toml_view)
+        apply_toml = QPushButton("Apply TOML to form", tab)
+        apply_toml.setObjectName("Primary")
+        apply_toml.clicked.connect(self._apply_toml_to_form)
+        validate = QPushButton("Validate", tab)
+        validate.clicked.connect(self._validate_config)
+        open_file = QPushButton("Open…", tab)
+        open_file.clicked.connect(self._open_config_file)
+        save_file = QPushButton("Save…", tab)
+        save_file.clicked.connect(self._save_config_file)
+        for button in (refresh, apply_toml, validate, open_file, save_file):
+            buttons.addWidget(button)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
+
+        self.toml_status = QLabel("", tab)
+        self.toml_status.setWordWrap(True)
+        layout.addWidget(self.toml_status)
+        self.config_tabs.addTab(tab, "Raw TOML")
+
+    # -- form <-> config --------------------------------------------------
+
+    @staticmethod
+    def _find_combo(combo: QComboBox, value: str | None) -> None:
+        if value is None:
+            return
+        index = combo.findData(value)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+
+    def _on_modifier_changed(self, text: str) -> None:
+        self.modifier_plugin_edit.setEnabled(text == _CUSTOM)
+
+    def _add_scorer_row(self, entry: PluginEntry | None = None) -> None:
+        row: dict[str, QWidget] = {}
+        combo = QComboBox()
+        combo.addItems([*_SCORER_ORDER(), _CUSTOM])
+        custom = QLineEdit()
+        custom.setPlaceholderText("plugin import path or file.py:Class")
+        custom.setEnabled(False)
+        optimization = QComboBox()
+        optimization.addItems(list(OPTIMIZATIONS))
+        instance = QLineEdit()
+        instance.setPlaceholderText("instance name (optional)")
+        remove = QPushButton("Remove")
+
+        def on_combo(text: str) -> None:
+            custom.setEnabled(text == _CUSTOM)
+
+        combo.currentTextChanged.connect(on_combo)
+        row.update(
+            plugin=combo,
+            custom=custom,
+            optimization=optimization,
+            instance=instance,
+            remove=remove,
+        )
+        self._scorer_rows.append(row)
+        container = QWidget()
+        line = QHBoxLayout(container)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.addWidget(combo, 2)
+        line.addWidget(custom, 3)
+        line.addWidget(optimization, 1)
+        line.addWidget(instance, 2)
+        line.addWidget(remove)
+        self.scorers_layout.addWidget(container)
+        remove.clicked.connect(lambda: self._remove_scorer_row(row, container))
+
+        plugin = entry.plugin if entry else SCORER_LABELS[next(iter(SCORER_LABELS))]
+        if plugin in _SCORER_BY_PATH:
+            combo.setCurrentText(_SCORER_BY_PATH[plugin])
+        else:
+            combo.setCurrentText(_CUSTOM)
+            custom.setText(plugin)
+        if entry and entry.optimization:
+            optimization.setCurrentText(entry.optimization)
+        if entry and entry.instance_name:
+            instance.setText(entry.instance_name)
+
+    def _remove_scorer_row(self, row: dict, container: QWidget) -> None:
+        self._scorer_rows = [item for item in self._scorer_rows if item is not row]
+        self.scorers_layout.removeWidget(container)
+        container.setParent(None)
+
+    def _collect_scorers(self) -> list[PluginEntry]:
+        entries: list[PluginEntry] = []
+        for row in self._scorer_rows:
+            plugin = row["plugin"].currentText()
+            path = (
+                row["custom"].text().strip() if plugin == _CUSTOM else SCORER_LABELS.get(plugin, "")
+            )
+            if not path:
+                continue
+            entries.append(
+                PluginEntry(
+                    plugin=path,
+                    optimization=row["optimization"].currentText(),
+                    instance_name=row["instance"].text().strip() or None,
+                )
+            )
+        return entries
+
+    def _write_dataset(
+        self,
+        tables: dict[str, dict],
+        class_name: str,
+        key: str,
+        dataset: QLineEdit,
+        split: QLineEdit,
+        column: QLineEdit,
+    ) -> None:
+        existing = dict(tables.get(class_name, {}).get(key, {}) or {})
+        if dataset.text().strip():
+            existing["dataset"] = dataset.text().strip()
+        else:
+            existing.pop("dataset", None)
+        if split.text().strip():
+            existing["split"] = split.text().strip()
+        else:
+            existing.pop("split", None)
+        if column.text().strip():
+            existing["column"] = column.text().strip()
+        else:
+            existing.pop("column", None)
+        table = tables.setdefault(class_name, {})
+        if existing:
+            table[key] = existing
+        else:
+            table.pop(key, None)
+
+    def config_from_form(self) -> HereticConfig:
+        """Build a config from widgets, preserving fields only in Raw TOML."""
+        cfg = copy.deepcopy(self._config)
+        cfg.dtypes = [item.strip() for item in self.dtypes_edit.text().split(",") if item.strip()]
+        cfg.quantization = self.quant_combo.currentText()
+        cfg.device_map = self.device_map_edit.text().strip() or "auto"
+        memory_text = self.max_memory_edit.text().strip()
+        if memory_text:
+            try:
+                parsed = json.loads(memory_text)
+                if not isinstance(parsed, dict) or not all(
+                    isinstance(k, str) and isinstance(v, str) for k, v in parsed.items()
+                ):
+                    raise ValueError("expected an object of device -> memory strings")
+                cfg.max_memory = dict(parsed)
+            except ValueError as error:
+                raise HereticConfigError(f"max_memory: {error}") from error
+        else:
+            cfg.max_memory = None
+        cfg.offload_outputs_to_cpu = self.offload_check.isChecked()
+        cfg.batch_size = self.batch_spin.value()
+        cfg.max_batch_size = self.max_batch_spin.value()
+        cfg.max_response_length = self.max_response_spin.value()
+        cfg.response_prefix = self.response_prefix_edit.text().strip() or None
+        cfg.system_prompt = self.system_prompt_edit.text()
+        blocks: list[list[str]] = []
+        for line in self.cot_edit.toPlainText().splitlines():
+            if " :: " in line:
+                initializer, finalizer = line.split(" :: ", 1)
+                blocks.append([initializer.strip(), finalizer.strip()])
+        cfg.chain_of_thought_blocks = blocks
+        cfg.print_debug_information = self.debug_check.isChecked()
+
+        cfg.modifiers = [
+            PluginEntry(
+                plugin=(
+                    self.modifier_plugin_edit.text().strip()
+                    if self.modifier_combo.currentText() == _CUSTOM
+                    else _MODIFIER_BY_LABEL.get(self.modifier_combo.currentText(), "")
+                )
+            )
+        ]
+        cfg.scorers = self._collect_scorers()
+
+        cfg.n_trials = self.trials_spin.value()
+        cfg.n_startup_trials = self.startup_spin.value()
+        seed_text = self.seed_edit.text().strip()
+        try:
+            cfg.seed = int(seed_text) if seed_text else None
+        except ValueError as error:
+            raise HereticConfigError(f"seed must be an integer: {error}") from error
+        cfg.checkpoint_action = CHECKPOINT_ACTIONS[
+            0 if self.checkpoint_combo.currentIndex() <= 0 else 1
+        ]
+        cfg.trial_index = self.trial_index_spin.value()
+
+        cfg.export_strategy = self.export_combo.currentText()
+        cfg.model_action = self.model_action_combo.currentText()
+        cfg.upload_repo_id = self.upload_repo_edit.text().strip() or None
+        cfg.upload_repo_private = self.private_check.isChecked()
+        repro = self.repro_combo.currentText()
+        cfg.upload_reproducibility_information = None if repro == "(not set)" else repro
+        cfg.modified_model_type = self.modified_type_edit.text().strip() or "decensored"
+        cfg.max_shard_size = self.shard_edit.text().strip() or "5GB"
+        cfg.upload_tags = [tag.strip() for tag in self.tags_edit.text().split(",") if tag.strip()]
+        cfg.enable_shell = self.shell_check.isChecked()
+
+        tables = cfg.plugin_tables
+        modifier_tables = tables.setdefault("modifier", {})
+        class_name = cfg.modifier_class_name()
+        self._write_dataset(
+            modifier_tables,
+            class_name,
+            "good_prompts",
+            self.good_dataset_edit,
+            self.good_split_edit,
+            self.good_column_edit,
+        )
+        self._write_dataset(
+            modifier_tables,
+            class_name,
+            "bad_prompts",
+            self.bad_dataset_edit,
+            self.bad_split_edit,
+            self.bad_column_edit,
+        )
+        scorer_tables = tables.setdefault("scorer", {})
+        self._write_dataset(
+            scorer_tables,
+            "KeywordRate",
+            "prompts",
+            self.kw_dataset_edit,
+            self.kw_split_edit,
+            self.kw_column_edit,
+        )
+        self._write_dataset(
+            scorer_tables,
+            "KLDivergence",
+            "prompts",
+            self.kl_dataset_edit,
+            self.kl_split_edit,
+            self.kl_column_edit,
+        )
+        cfg.model = self.model_combo.currentData() or self.model_combo.currentText().strip()
+        return cfg
+
+    def apply_config_to_form(self, cfg: HereticConfig) -> None:
+        self._config = copy.deepcopy(cfg)
+        self.dtypes_edit.setText(", ".join(cfg.dtypes))
+        self.quant_combo.setCurrentText(cfg.quantization)
+        self.device_map_edit.setText(cfg.device_map)
+        self.max_memory_edit.setText(json.dumps(cfg.max_memory) if cfg.max_memory else "")
+        self.offload_check.setChecked(cfg.offload_outputs_to_cpu)
+        self.batch_spin.setValue(cfg.batch_size)
+        self.max_batch_spin.setValue(cfg.max_batch_size)
+        self.max_response_spin.setValue(cfg.max_response_length)
+        self.response_prefix_edit.setText(cfg.response_prefix or "")
+        self.system_prompt_edit.setText(cfg.system_prompt)
+        self.cot_edit.setPlainText(
+            "\n".join(" :: ".join(pair) for pair in cfg.chain_of_thought_blocks)
+        )
+        self.debug_check.setChecked(cfg.print_debug_information)
+
+        modifier_path = cfg.modifiers[0].plugin if cfg.modifiers else ""
+        label = _MODIFIER_BY_PATH.get(modifier_path, _CUSTOM)
+        self.modifier_combo.setCurrentText(label)
+        self.modifier_plugin_edit.setText("" if label != _CUSTOM else modifier_path)
+        self.modifier_plugin_edit.setEnabled(label == _CUSTOM)
+
+        for row in list(self._scorer_rows):
+            container = row["plugin"].parentWidget()
+            self._remove_scorer_row(row, container)
+        for entry in cfg.scorers:
+            self._add_scorer_row(entry)
+
+        self.trials_spin.setValue(cfg.n_trials)
+        self.startup_spin.setValue(cfg.n_startup_trials)
+        self.seed_edit.setText("" if cfg.seed is None else str(cfg.seed))
+        self.checkpoint_combo.setCurrentIndex(1 if cfg.checkpoint_action == "continue" else 0)
+        self.trial_index_spin.setValue(cfg.trial_index or 0)
+
+        self.export_combo.setCurrentText(cfg.export_strategy or "merge")
+        self.model_action_combo.setCurrentText(cfg.model_action or "save")
+        self.upload_repo_edit.setText(cfg.upload_repo_id or "")
+        self.private_check.setChecked(bool(cfg.upload_repo_private))
+        self.repro_combo.setCurrentText(cfg.upload_reproducibility_information or "(not set)")
+        self.modified_type_edit.setText(cfg.modified_model_type)
+        self.shard_edit.setText(str(cfg.max_shard_size))
+        self.tags_edit.setText(", ".join(cfg.upload_tags))
+        self.shell_check.setChecked(cfg.enable_shell)
+
+        tables = cfg.plugin_tables
+        modifier_table = tables.get("modifier", {}).get(cfg.modifier_class_name(), {})
+        scorer_tables = tables.get("scorer", {})
+        pairs = (
+            (
+                modifier_table,
+                "good_prompts",
+                self.good_dataset_edit,
+                self.good_split_edit,
+                self.good_column_edit,
+            ),
+            (
+                modifier_table,
+                "bad_prompts",
+                self.bad_dataset_edit,
+                self.bad_split_edit,
+                self.bad_column_edit,
+            ),
+            (
+                scorer_tables.get("KeywordRate", {}),
+                "prompts",
+                self.kw_dataset_edit,
+                self.kw_split_edit,
+                self.kw_column_edit,
+            ),
+            (
+                scorer_tables.get("KLDivergence", {}),
+                "prompts",
+                self.kl_dataset_edit,
+                self.kl_split_edit,
+                self.kl_column_edit,
+            ),
+        )
+        for source, key, dataset, split, column in pairs:
+            spec = source.get(key, {}) or {}
+            dataset.setText(_dataset_text(spec))
+            split.setText(_dataset_split(spec))
+            column.setText(_dataset_column(spec))
+        self._refresh_toml_view()
+
+    # -- raw TOML actions -------------------------------------------------
+
+    def _refresh_toml_view(self) -> None:
+        try:
+            cfg = self.config_from_form()
+        except HereticConfigError as error:
+            self.toml_status.setText(f"Cannot render TOML: {error}")
+            return
+        self.toml_view.setPlainText(cfg.to_toml())
+        self.toml_status.setText("Form settings rendered as config.toml.")
+
+    def _apply_toml_to_form(self) -> None:
+        try:
+            cfg = HereticConfig.from_toml(
+                self.toml_view.toPlainText(), base=HereticConfig.default()
+            )
+        except HereticConfigError as error:
+            self.toml_status.setText(str(error))
+            self._state.notify("error", f"Heretic config could not be applied: {error}")
+            return
+        self.apply_config_to_form(cfg)
+        problems = cfg.validate()
+        self.toml_status.setText(
+            "Applied. " + ("Issues: " + "; ".join(problems) if problems else "Configuration valid.")
+        )
+
+    def _validate_config(self) -> list[str]:
+        try:
+            cfg = HereticConfig.from_toml(
+                self.toml_view.toPlainText(), base=HereticConfig.default()
+            )
+        except HereticConfigError as error:
+            self.toml_status.setText(str(error))
+            return [str(error)]
+        problems = cfg.validate()
+        self.toml_status.setText(
+            "Configuration valid." if not problems else "Issues: " + "; ".join(problems)
+        )
+        return problems
+
+    def _open_config_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Heretic config.toml", "", "TOML files (*.toml);;All files (*.*)"
+        )
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError as error:
+            self._state.notify("error", f"Could not read config: {error}")
+            return
+        self.toml_view.setPlainText(text)
+        self._apply_toml_to_form()
+
+    def _save_config_file(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Heretic config.toml", "config.toml", "TOML files (*.toml)"
+        )
+        if not path:
+            return
+        try:
+            Path(path).write_text(self.toml_view.toPlainText(), encoding="utf-8")
+        except OSError as error:
+            self._state.notify("error", f"Could not save config: {error}")
+            return
+        self._state.notify("info", f"Heretic config saved to {path}")
+
+    # -- setup / state ----------------------------------------------------
 
     def _open_outputs(self, label: str) -> None:
         open_storage_path(self._state, self._storage, label)
@@ -195,6 +873,23 @@ class HereticTab(TabPage):
         else:
             self.model_combo.setEditText(model_ref)
 
+    def _select_preset(self, preset_id: str) -> None:
+        index = self.preset_combo.findData(preset_id)
+        if index >= 0:
+            self.preset_combo.setCurrentIndex(index)
+
+    def _load_selected_preset(self) -> None:
+        preset_id = self.preset_combo.currentData()
+        if not preset_id:
+            return
+        try:
+            cfg = load_preset(preset_id)
+        except (HereticConfigError, OSError) as error:
+            self._state.notify("error", f"Could not load Heretic preset: {error}")
+            return
+        self.apply_config_to_form(cfg)
+        self._state.notify("info", f"Loaded Heretic preset: {self.preset_combo.currentText()}")
+
     def _update_model_choices(self, models: list[LocalModelRecord]) -> None:
         curr = self.model_combo.currentText()
         self.model_combo.clear()
@@ -205,6 +900,7 @@ class HereticTab(TabPage):
             self.select_model(curr)
         elif self.model_combo.count() == 0:
             self.model_combo.addItem("Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-0.5B-Instruct")
+            self.model_combo.setCurrentIndex(0)
 
     def refresh(self) -> None:
         validation = self._storage.validate("outputs_dir")
@@ -233,17 +929,13 @@ class HereticTab(TabPage):
         self.run_button.setEnabled(is_avail and has_no_active)
         if is_avail:
             self.set_status("Heretic engine available", "ok")
-            # Compatibility cannot be proven from metadata alone. Never block on
-            # an unknown, but make the limitation visible before the user starts.
             if self._state.hardware is None:
                 self.run_button.setToolTip(
-                    "Run Heretic abliteration — GPU information unavailable; "
-                    "model compatibility is not verified."
+                    "Run Heretic — GPU information unavailable; model compatibility is not verified."
                 )
             else:
                 self.run_button.setToolTip(
-                    "Run Heretic abliteration — verify the selected model fits in "
-                    "VRAM; compatibility is not certified automatically."
+                    "Run Heretic — verify the selected model and settings fit in VRAM."
                 )
         else:
             level = "error" if status.badge() == "check failed" else "warn"
@@ -259,10 +951,24 @@ class HereticTab(TabPage):
             self.run_button.setEnabled(True)
             self.cancel_button.setEnabled(False)
 
+    # -- launch / protocol ------------------------------------------------
+
     def _start_heretic(self) -> None:
         model_name = self.model_combo.currentData() or self.model_combo.currentText().strip()
         if not model_name:
-            self._state.notify("warning", "Please select or enter a model name to abliterate.")
+            self._state.notify("warning", "Please select or enter a model name to modify.")
+            return
+
+        try:
+            cfg = self.config_from_form()
+        except HereticConfigError as error:
+            self._state.notify("error", f"Invalid Heretic configuration: {error}")
+            return
+        cfg.model = model_name
+        problems = cfg.validate()
+        if problems:
+            self.toml_status.setText("Issues: " + "; ".join(problems))
+            self._state.notify("error", "Heretic configuration is invalid: " + problems[0])
             return
 
         heretic_status = self._registry.status(HERETIC)
@@ -305,14 +1011,36 @@ class HereticTab(TabPage):
     def _build_config(self, job_id: str, model_name: str) -> dict:
         outputs_dir = self._storage.path_for("outputs_dir") / f"heretic_{job_id}"
         outputs_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            cfg = self.config_from_form()
+        except HereticConfigError:
+            cfg = copy.deepcopy(self._config)
+        cfg.model = model_name
+        headless = cfg.headless_copy(outputs_dir / "model", outputs_dir / "checkpoints")
         return {
             "job_id": job_id,
             "model_name": model_name,
-            "trials": self.trials_spin.value(),
-            "export_strategy": self.export_combo.currentText(),
+            "trials": headless.n_trials,
+            "export_strategy": headless.export_strategy,
             "output_dir": str(outputs_dir / "model"),
-            "seed": 42,
+            "toml": headless.to_toml(),
         }
+
+    def _worker_environment(self, config_data: dict) -> dict[str, str]:
+        """Pass the stored HF token to Heretic only for upload jobs."""
+        toml_text = config_data.get("toml")
+        if not toml_text:
+            return {}
+        try:
+            parsed = HereticConfig.from_toml(toml_text)
+        except HereticConfigError:
+            return {}
+        if parsed.model_action != "upload":
+            return {}
+        if self._credentials is None or not self._credentials.available:
+            return {}
+        token = self._credentials.get_token()
+        return {"HF_TOKEN": token} if token else {}
 
     def _connect_queue_signal(self) -> None:
         if self._queue_connected:
@@ -342,6 +1070,7 @@ class HereticTab(TabPage):
             self.trial_metric_label.setText("Trial: 0")
             self.refusal_metric_label.setText("Refusal: —")
             self.kl_metric_label.setText("KL Div: —")
+            self.extra_metric_label.setText("")
 
             scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
             scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -351,6 +1080,7 @@ class HereticTab(TabPage):
                 script=worker_script,
                 args=["--config", json.dumps(config_data)],
                 cwd=scratch_dir,
+                env=self._worker_environment(config_data),
                 parent=self,
             )
             self._active_worker = worker
@@ -450,14 +1180,17 @@ class HereticTab(TabPage):
         elif msg.type is MessageType.METRIC:
             name = payload.get("name")
             val = payload.get("value")
-            if name == "refusal_rate" and val is not None:
+            if val is None:
+                return
+            if name == "refusal_rate":
                 self.refusal_metric_label.setText(f"Refusal: {float(val) * 100:.1f}%")
-            elif name == "kl_divergence" and val is not None:
+            elif name == "kl_divergence":
                 self.kl_metric_label.setText(f"KL Div: {float(val):.4f}")
+            else:
+                self.extra_metric_label.setText(f"{name}: {float(val):.4f}")
 
         elif msg.type is MessageType.LOG:
-            line = payload.get("message", "")
-            self.log_view.append(line)
+            self.log_view.append(str(payload.get("message", "")))
 
         elif msg.type is MessageType.RESULT:
             out_dir = payload.get("output_dir", "")
@@ -468,7 +1201,7 @@ class HereticTab(TabPage):
             message = str(
                 payload.get("message")
                 or (
-                    "Heretic abliteration completed." if success else "Heretic finished with error."
+                    "Heretic modification completed." if success else "Heretic finished with error."
                 )
             )
             self._pending_completion = (success, message)
@@ -483,7 +1216,7 @@ class HereticTab(TabPage):
             elif completion is not None and completion[0] and exit_code == 0:
                 self._job_manager.mark_succeeded(job_id, message=completion[1])
                 self._state.publish_models(self._model_service.scan_local_models())
-                self._state.notify("info", "Heretic abliteration completed successfully!")
+                self._state.notify("info", "Heretic modification completed successfully!")
             elif completion is not None:
                 self._job_manager.mark_failed(
                     job_id,
@@ -507,3 +1240,11 @@ class HereticTab(TabPage):
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self._state.notify("error", f"Heretic worker failed to start: {error}")
+
+
+def _MODIFIER_LABELS_ORDER() -> tuple[str, ...]:
+    return tuple(MODIFIER_LABELS)
+
+
+def _SCORER_ORDER() -> tuple[str, ...]:
+    return tuple(SCORER_LABELS)

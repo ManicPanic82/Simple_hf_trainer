@@ -177,6 +177,7 @@ class MainWindow(QMainWindow):
             self.context.job_manager,
             self.context.registry,
             self.context.model_service,
+            credentials=self.context.credentials,
         )
 
         for tab, name in zip(

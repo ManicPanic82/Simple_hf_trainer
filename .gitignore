@@ -31,6 +31,9 @@ docs/evidence/heretic-run/
 *.safetensors
 *.gguf
 
+# Editor/tool backup files
+*.bak
+
 # OS / editor
 Thumbs.db
 Desktop.ini

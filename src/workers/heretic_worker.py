@@ -77,6 +77,40 @@ def install_dummy_prompt_output() -> None:
         pass
 
 
+def _score_name(name: str) -> str:
+    """Map a Heretic score name to the metric names used by the GUI."""
+    lowered = name.lower()
+    if "refus" in lowered or "keyword" in lowered:
+        return "refusal_rate"
+    if "kl divergence" in lowered:
+        return "kl_divergence"
+    slug = re.sub(r"[^a-z0-9]+", "_", lowered).strip("_")
+    return slug or "score"
+
+
+_NON_SCORE_WORDS = ("version", "memory", "driver", "cuda", "time", "parameter", "ram", "gpu")
+
+
+def _is_score_line(name: str) -> bool:
+    """System information is printed with the same bullet style as scores."""
+    lowered = name.lower()
+    return not any(word in lowered for word in _NON_SCORE_WORDS)
+
+
+def _score_value(name: str, raw: str) -> float | None:
+    """Convert a displayed score such as ``2/5`` or ``0.0123`` to a float."""
+    fraction = re.match(r"^(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$", raw)
+    if fraction:
+        denom = float(fraction.group(2))
+        return round(float(fraction.group(1)) / denom, 6) if denom else None
+    number = re.match(r"^[+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?$", raw, re.IGNORECASE)
+    if number:
+        return float(number.group(0))
+    if "by definition" in raw.lower():
+        return 0.0
+    return None
+
+
 class OutputInterceptor:
     """Intercept stdout/stderr from Heretic and transform into protocol messages."""
 
@@ -96,6 +130,7 @@ class OutputInterceptor:
             trial_match = re.search(r"Running trial (\d+) of (\d+)", line_str)
             if trial_match:
                 self.current_trial = int(trial_match.group(1))
+                self.total_trials = max(1, int(trial_match.group(2)))
                 frac = min(0.95, 0.1 + 0.8 * (self.current_trial / self.total_trials))
                 emit(
                     "progress",
@@ -109,27 +144,23 @@ class OutputInterceptor:
                 emit("log", self.job_id, {"message": line_str, "level": "info"})
                 continue
 
-            # Parse refusals
-            refusals_match = re.search(r"Refusals:\s*(\d+)/(\d+)", line_str)
-            if refusals_match:
-                num = int(refusals_match.group(1))
-                denom = int(refusals_match.group(2))
-                rate = round(num / max(1, denom), 4)
-                emit(
-                    "metric",
-                    self.job_id,
-                    {"name": "refusal_rate", "value": rate, "step": self.current_trial},
-                )
-
-            # Parse KL divergence
-            kl_match = re.search(r"KL divergence:\s*([\d\.]+)", line_str)
-            if kl_match:
-                kl_val = float(kl_match.group(1))
-                emit(
-                    "metric",
-                    self.job_id,
-                    {"name": "kl_divergence", "value": kl_val, "step": self.current_trial},
-                )
+            # Every Heretic score is printed as "  * <score name>: <value>".
+            # Support bare "Refusals: 2/5" lines as well for older releases.
+            score_match = re.match(r"^(?:\*\s+)?([^:]{2,60}):\s*(.+)$", line_str)
+            if score_match:
+                name = score_match.group(1).strip()
+                raw_value = score_match.group(2).strip()
+                value = _score_value(name, raw_value)
+                if value is not None and _is_score_line(name):
+                    emit(
+                        "metric",
+                        self.job_id,
+                        {
+                            "name": _score_name(name),
+                            "value": value,
+                            "step": self.current_trial,
+                        },
+                    )
 
             emit("log", self.job_id, {"message": line_str, "level": "info"})
 
@@ -139,13 +170,32 @@ class OutputInterceptor:
         pass
 
 
+def _config_value(toml_text: str, key: str, default: str) -> str:
+    match = re.search(rf"(?m)^{re.escape(key)}\s*=\s*\"([^\"]*)\"", toml_text)
+    return match.group(1) if match else default
+
+
+def _config_int(toml_text: str, key: str, default: int) -> int:
+    match = re.search(rf"(?m)^{re.escape(key)}\s*=\s*(\d+)", toml_text)
+    return int(match.group(1)) if match else default
+
+
 def run_worker(cfg: dict) -> int:
     job_id = cfg.get("job_id", "heretic-job")
     model_name = cfg.get("model_name", "Qwen/Qwen2.5-0.5B-Instruct")
-    trials = int(cfg.get("trials", 2))
-    export_strategy = cfg.get("export_strategy", "merge")
     output_dir = Path(cfg.get("output_dir", "outputs/heretic_model")).resolve()
-    seed = int(cfg.get("seed", 42))
+    full_config = cfg.get("toml")
+    has_full_config = isinstance(full_config, str) and bool(full_config.strip())
+    if has_full_config:
+        # The GUI generated a complete Heretic 2.x config.toml. Only read the
+        # few keys needed for progress/metadata; Heretic validates the rest.
+        trials = _config_int(full_config, "n_trials", 2)
+        export_strategy = _config_value(full_config, "export_strategy", "merge")
+        model_action = _config_value(full_config, "model_action", "save")
+    else:
+        trials = int(cfg.get("trials", 2))
+        export_strategy = cfg.get("export_strategy", "merge")
+        model_action = "save"
     if export_strategy not in {"merge", "adapter"}:
         emit("error", job_id, {"message": "Export strategy must be 'merge' or 'adapter'."})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
@@ -179,7 +229,13 @@ def run_worker(cfg: dict) -> int:
     checkpoints_dir = output_dir.parent / "checkpoints"
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
-    toml_content = f"""
+    if has_full_config:
+        toml_content = full_config
+    else:
+        # Legacy fallback for jobs queued or submitted by older app versions
+        # that only supply the compact abliteration options.
+        seed = int(cfg.get("seed", 42))
+        toml_content = f"""
 model = {json.dumps(model_name)}
 quantization = "bnb_4bit"
 batch_size = 2
@@ -274,6 +330,16 @@ column = "text"
         artifacts = (
             [p.name for p in output_dir.iterdir() if p.is_file()] if output_dir.is_dir() else []
         )
+        if has_full_config and model_action == "save" and not artifacts:
+            # Heretic can print a validation error and return normally without
+            # exporting anything. Never report that as a successful job.
+            message = (
+                "Heretic finished but produced no saved model. "
+                "Check the engine log for configuration or objective errors."
+            )
+            emit("error", job_id, {"message": message})
+            emit("job_complete", job_id, {"success": False, "exit_code": 1, "message": message})
+            return 1
         emit(
             "result",
             job_id,
