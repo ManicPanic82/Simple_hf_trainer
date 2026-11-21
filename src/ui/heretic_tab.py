@@ -1062,7 +1062,7 @@ class HereticTab(TabPage):
             self.run_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.progress_bar.setValue(0)
-            self.console.start_session("Heretic modification", model_name)
+            self.console.start_session("Heretic modification", str(config_data.get("model_name") or ""))
             self.trial_metric_label.setText("Trial: 0")
             self.refusal_metric_label.setText("Refusal: —")
             self.kl_metric_label.setText("KL Div: —")

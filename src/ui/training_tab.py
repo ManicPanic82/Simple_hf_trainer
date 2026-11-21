@@ -435,7 +435,7 @@ class TrainingTab(TabPage):
             self.start_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.progress_bar.setValue(0)
-            self.console.start_session("Unsloth training", model_name)
+            self.console.start_session("Unsloth training", str(config_data.get("model_name") or ""))
             advisory = self._compatibility_advisory(str(config_data["model_name"]))
             if advisory:
                 self.console.append(advisory)
