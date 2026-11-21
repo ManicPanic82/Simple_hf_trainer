@@ -82,7 +82,9 @@ class TrainingTab(TabPage):
         grid.addWidget(QLabel("Base Model:", cfg_card), 0, 0)
         self.model_combo = QComboBox(cfg_card)
         self.model_combo.setEditable(True)
-        self.model_combo.setPlaceholderText("Select local model or enter HF repo (e.g. unsloth/Qwen2.5-0.5B-Instruct)")
+        self.model_combo.setPlaceholderText(
+            "Select local model or enter HF repo (e.g. unsloth/Qwen2.5-0.5B-Instruct)"
+        )
         grid.addWidget(self.model_combo, 0, 1, 1, 3)
 
         # Dataset selection
@@ -178,7 +180,9 @@ class TrainingTab(TabPage):
         self.log_view = QTextEdit(control)
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(140)
-        self.log_view.setStyleSheet("font-family: 'Cascadia Mono', Consolas, monospace; font-size: 8.5pt;")
+        self.log_view.setStyleSheet(
+            "font-family: 'Cascadia Mono', Consolas, monospace; font-size: 8.5pt;"
+        )
         control.add(self.log_view)
 
         self.add(control)
@@ -229,7 +233,9 @@ class TrainingTab(TabPage):
         if curr:
             self.select_model(curr)
         elif self.model_combo.count() == 0:
-            self.model_combo.addItem("unsloth/Qwen2.5-0.5B-Instruct", "unsloth/Qwen2.5-0.5B-Instruct")
+            self.model_combo.addItem(
+                "unsloth/Qwen2.5-0.5B-Instruct", "unsloth/Qwen2.5-0.5B-Instruct"
+            )
 
     def _update_dataset_choices(self, datasets: list[LocalDatasetRecord]) -> None:
         curr = self.dataset_combo.currentText()
@@ -283,6 +289,47 @@ class TrainingTab(TabPage):
             self.start_button.setEnabled(True)
             self.cancel_button.setEnabled(False)
 
+    def _compatibility_advisory(self, model_name: str) -> str | None:
+        """Return a non-blocking advisory when model/GPU compatibility is unknown.
+
+        Unsloth is the only component that can decide compatibility, and it does
+        so when the model is loaded. This helper never claims a verdict: it only
+        flags missing evidence (no GPU snapshot, or a model that is not a known
+        local model) so the user is warned before the job starts. An unknown
+        value is advisory text, never a reason to block a job.
+        """
+        reasons: list[str] = []
+
+        hardware = getattr(self._state, "hardware", None)
+        gpu = getattr(hardware, "gpu", None) if hardware is not None else None
+        if hardware is None or gpu is None or not getattr(hardware, "gpu_available", False):
+            reasons.append("GPU not detected")
+        elif not getattr(gpu, "name", None):
+            reasons.append("GPU name unavailable")
+
+        model_verified = False
+        models = getattr(self._state, "models", None)
+        if isinstance(models, (list, tuple)):
+            candidate = str(model_name)
+            for record in models:
+                if candidate in (
+                    str(getattr(record, "path", "")),
+                    str(getattr(record, "name", "")),
+                ):
+                    architecture = str(getattr(record, "architecture", "") or "")
+                    model_verified = bool(architecture) and architecture.lower() != "unknown"
+                    break
+        if not model_verified:
+            reasons.append("model not verified in local library")
+
+        if not reasons:
+            return None
+        detail = "; ".join(reasons)
+        return (
+            "[compatibility advisory] Compatibility not verified for this model/GPU "
+            f"({detail}); Unsloth will report incompatibilities at load time."
+        )
+
     def _start_training(self) -> None:
         model_name = self.model_combo.currentData() or self.model_combo.currentText().strip()
         if not model_name:
@@ -327,6 +374,10 @@ class TrainingTab(TabPage):
             self.cancel_button.setEnabled(True)
             self.progress_bar.setValue(0)
             self.log_view.clear()
+            advisory = self._compatibility_advisory(str(model_name))
+            if advisory:
+                self.log_view.append(advisory)
+                self.start_button.setToolTip(advisory)
             self.step_label.setText("Step: 0")
             self.loss_label.setText("Loss: —")
 
@@ -403,7 +454,10 @@ class TrainingTab(TabPage):
                     "Cancellation requested. The worker has up to 10 seconds to stop cleanly before it is terminated.",
                 )
             else:
-                self._state.notify("warning", "The cancellation request could not be sent; waiting for worker exit.")
+                self._state.notify(
+                    "warning",
+                    "The cancellation request could not be sent; waiting for worker exit.",
+                )
 
     @property
     def worker_running(self) -> bool:
@@ -414,6 +468,7 @@ class TrainingTab(TabPage):
         """Request graceful cancellation before the application closes."""
         if self.worker_running and self._active_job_id:
             self._cancel_training()
+
     def _on_worker_started(self) -> None:
         if self._active_job_id and self._active_worker:
             self._job_manager.mark_running(self._active_job_id, pid=self._active_worker.pid)
@@ -460,10 +515,14 @@ class TrainingTab(TabPage):
 
         elif msg.type is MessageType.JOB_COMPLETE:
             success = bool(payload.get("success", False))
-            message = str(payload.get("message") or (
-                "Training completed successfully." if success
-                else "Training finished with error."
-            ))
+            message = str(
+                payload.get("message")
+                or (
+                    "Training completed successfully."
+                    if success
+                    else "Training finished with error."
+                )
+            )
             self._pending_completion = (success, message)
 
     def _on_worker_log_line(self, line: str) -> None:
@@ -473,7 +532,6 @@ class TrainingTab(TabPage):
 
     def _on_worker_protocol_error(self, error: object) -> None:
         self.log_view.append(f"[protocol warning] {error}")
-
 
     def _on_worker_exited(self, exit_code: int) -> None:
         if self._active_job_id:
@@ -492,7 +550,7 @@ class TrainingTab(TabPage):
             elif completion is not None and completion[0] and exit_code == 0:
                 self._job_manager.mark_succeeded(job_id, message=completion[1])
                 self.log_view.append(f"[worker exit] {completion[1]}")
-                self._model_service.scan_local_models()
+                self._state.publish_models(self._model_service.scan_local_models())
                 self._state.notify("info", "LoRA fine-tuning completed successfully!")
 
             elif completion is not None:
@@ -501,16 +559,12 @@ class TrainingTab(TabPage):
                     message=completion[1],
                     exit_code=exit_code,
                 )
-                self.log_view.append(
-                    f"[worker exit] {completion[1]} (exit code {exit_code})"
-                )
+                self.log_view.append(f"[worker exit] {completion[1]} (exit code {exit_code})")
 
             else:
                 failed_job = self._job_manager.handle_worker_exit(job_id, exit_code)
                 if failed_job is not None and failed_job.state.value == "failed":
-                    self.log_view.append(
-                        f"[worker exit] {failed_job.message}"
-                    )
+                    self.log_view.append(f"[worker exit] {failed_job.message}")
                 elif failed_job is not None:
                     self.log_view.append(
                         f"[worker exit] Job finished with state "
@@ -533,4 +587,3 @@ class TrainingTab(TabPage):
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self._state.notify("error", f"Unsloth worker failed to start: {error}")
-

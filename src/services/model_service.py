@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,34 @@ class HubModelRecord:
     private: bool = False
 
 
+class DownloadCancelled(Exception):
+    """A download was stopped between files at the caller's request.
+
+    This is cooperative cancellation only: a file already handed to
+    ``hf_hub_download`` is allowed to finish. Files completed before the
+    cancellation point are retained on disk.
+    """
+
+    def __init__(self, destination: Path, downloaded: int, total: int) -> None:
+        self.destination = destination
+        self.downloaded = downloaded
+        self.total = total
+        super().__init__(
+            f"Download cancelled after {downloaded}/{total} files; "
+            f"partial files were kept in {destination}. "
+            "Cancellation is checked between files, not mid-file."
+        )
+
+
+def _is_cancelled(cancel: threading.Event | Callable[[], bool] | None) -> bool:
+    """Check a cancellation Event or callable without assuming either type."""
+    if cancel is None:
+        return False
+    if isinstance(cancel, threading.Event):
+        return cancel.is_set()
+    return bool(cancel())
+
+
 def estimate_vram_compatibility(
     parameter_count: int | None,
     size_mb: float,
@@ -62,7 +91,10 @@ def estimate_vram_compatibility(
         elif parameter_count <= 3_500_000_000:
             status, estimate = "warn", "may fit with conservative 4-bit settings and short context"
         else:
-            status, estimate = "error", "high risk of exceeding 6 GB during training or full-GPU loading"
+            status, estimate = (
+                "error",
+                "high risk of exceeding 6 GB during training or full-GPU loading",
+            )
         return status, f"~{parameter_count / 1e9:.1f}B parameters: {estimate}. {caveat}"
 
     if model_format == "gguf":
@@ -300,7 +332,11 @@ class ModelService:
 
             size_mb = round(total_size / (1024 * 1024), 1)
             vram_status, vram_detail = estimate_vram_compatibility(
-                None, size_mb, "safetensors" if any(f["filename"].endswith(".safetensors") for f in files) else "other"
+                None,
+                size_mb,
+                "safetensors"
+                if any(f["filename"].endswith(".safetensors") for f in files)
+                else "other",
             )
 
             return {
@@ -324,9 +360,21 @@ class ModelService:
         repo_id: str,
         destination: Path | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
+        cancel: threading.Event | Callable[[], bool] | None = None,
     ) -> Path:
-        """Download model snapshot to models_dir or destination."""
-        from huggingface_hub import snapshot_download
+        """Download a model into ``destination`` one file at a time.
+
+        Progress is reported as completed files over total files, not as an
+        estimated byte percentage. ``cancel`` may be a ``threading.Event`` or
+        a zero-argument callable; it is only checked *between* files. A file
+        that has already been handed to ``hf_hub_download`` is allowed to
+        finish, so this is cooperative cancellation and not true mid-file
+        cancellation. Files downloaded before cancellation are retained.
+
+        Raises ``DownloadCancelled`` when cancellation is observed, and
+        re-raises any Hub error after logging it.
+        """
+        from huggingface_hub import HfApi, hf_hub_download
 
         token = self._get_token()
         if destination is None:
@@ -335,17 +383,40 @@ class ModelService:
             destination = models_dir / safe_folder
 
         destination.mkdir(parents=True, exist_ok=True)
-        if progress_callback:
-            progress_callback(0.1, f"Connecting to Hugging Face Hub for {repo_id}...")
 
-        snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(destination),
-            token=token,
-            max_workers=4,
-        )
+        def emit(fraction: float, message: str) -> None:
+            if progress_callback:
+                progress_callback(fraction, message)
 
-        if progress_callback:
-            progress_callback(1.0, f"Downloaded {repo_id} to {destination}")
+        emit(0.0, f"Listing files for {repo_id}...")
+        try:
+            files = list(HfApi(token=token).list_repo_files(repo_id=repo_id, repo_type="model"))
+        except Exception as error:
+            logger.error("Failed to list files for %s: %s", repo_id, error)
+            raise
 
+        total = len(files)
+        emit(0.0, f"Downloading {total} files for {repo_id}...")
+        for index, filename in enumerate(files, start=1):
+            completed = index - 1
+            fraction = completed / total if total else 0.0
+            if _is_cancelled(cancel):
+                emit(
+                    fraction,
+                    f"Cancelling after {completed}/{total} files; "
+                    "files already downloaded were kept.",
+                )
+                raise DownloadCancelled(destination, completed, total)
+
+            emit(fraction, f"Downloading file {index}/{total}: {filename}")
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                repo_type="model",
+                local_dir=str(destination),
+                token=token,
+            )
+            emit(index / total if total else 0.0, f"Downloaded file {index}/{total}: {filename}")
+
+        emit(1.0, f"Downloaded {repo_id} to {destination}")
         return destination

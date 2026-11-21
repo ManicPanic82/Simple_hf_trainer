@@ -115,7 +115,9 @@ Engine environments live under `environments/` and are **never** committed.
   other GPU processes.
 - Cancellation is cooperative first. Unsloth stops at a training-step boundary and Heretic
   receives an interrupt; an unresponsive worker is terminated after a grace period.
-- No persistent model or dataset registry is maintained yet.
+- No persistent model or dataset registry is maintained yet. Job history is also
+  session-only by design: settings, models and datasets are rediscovered after a restart,
+  but completed job records are not reconstructed.
 - GPU monitoring uses `nvidia-smi`; without it the status strip reports *Unavailable*.
 
 

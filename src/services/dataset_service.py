@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -449,3 +450,42 @@ class DatasetService:
         except Exception as error:
             logger.error("Hub dataset search failed: %s", error)
             raise
+
+    def download_dataset(
+        self,
+        repo_id: str,
+        target_dir: Path | str,
+        token: str | None = None,
+        progress: Callable[[float, str], None] | None = None,
+    ) -> Path:
+        """Download a Hub dataset snapshot into ``target_dir`` and return the local path."""
+        from huggingface_hub import snapshot_download
+
+        if not repo_id or not str(repo_id).strip():
+            raise ValueError("A dataset repo_id is required.")
+        if target_dir is None or not str(target_dir).strip():
+            raise ValueError("A target directory is required.")
+
+        destination = Path(target_dir)
+        destination.mkdir(parents=True, exist_ok=True)
+
+        if token is None:
+            token = self._get_token()
+
+        if progress:
+            progress(0.1, f"Connecting to Hugging Face Hub for {repo_id}...")
+
+        try:
+            snapshot_download(
+                repo_id=repo_id,
+                local_dir=str(destination),
+                repo_type="dataset",
+                token=token,
+            )
+        except Exception as error:
+            logger.error("Hub dataset download failed for %s: %s", repo_id, error)
+            raise RuntimeError(f"Failed to download dataset {repo_id}: {error}") from error
+
+        if progress:
+            progress(1.0, f"Downloaded {repo_id} to {destination}")
+        return destination

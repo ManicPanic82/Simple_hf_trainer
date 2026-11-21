@@ -1,0 +1,157 @@
+"""MainWindow closeEvent shutdown path: bounded polling, feedback and escalation."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtWidgets import QApplication, QMainWindow
+
+from ui.main_window import SHUTDOWN_TIMEOUT_MS, MainWindow
+
+
+def _tab(*, running: bool = False) -> MagicMock:
+    """A tab double exposing the worker surface MainWindow relies on."""
+    tab = MagicMock()
+    tab.worker_running = running
+    tab.worker = MagicMock()
+    return tab
+
+
+@pytest.fixture
+def window(context, qapp):
+    """A real MainWindow whose tabs, banner and close() are deterministic doubles."""
+    from app.application import create_window
+
+    win = create_window(context)
+    win.context = MagicMock()
+    win.banner = MagicMock()
+    win.close = MagicMock()
+    win.training_tab = _tab()
+    win.heretic_tab = _tab()
+    yield win
+    for name in ("_shutdown_timer", "_shutdown_timeout_timer"):
+        timer = getattr(win, name, None)
+        if timer is not None:
+            timer.stop()
+    win.deleteLater()
+    QApplication.processEvents()
+
+
+def _close_event() -> MagicMock:
+    return MagicMock(spec=QCloseEvent)
+
+
+def test_clean_close_calls_super_and_accepts(window: MainWindow) -> None:
+    event = _close_event()
+
+    def _accept(*_args):
+        event.accept()
+
+    with patch.object(QMainWindow, "closeEvent", side_effect=_accept) as super_close:
+        window.closeEvent(event)
+
+    super_close.assert_called_once()
+    event.accept.assert_called_once_with()
+    event.ignore.assert_not_called()
+    assert not getattr(window, "_shutdown_pending", False)
+
+
+def test_active_worker_ignores_close_notices_and_starts_timers(window: MainWindow) -> None:
+    window.training_tab.worker_running = True
+    event = _close_event()
+
+    window.closeEvent(event)
+
+    event.ignore.assert_called_once_with()
+    event.accept.assert_not_called()
+    notices = [call.args[0] for call in window.banner.show_notice.call_args_list]
+    assert any(n.level == "info" and "Stopping active workers" in n.message for n in notices)
+    window.training_tab.request_shutdown.assert_called_once_with()
+    window.heretic_tab.request_shutdown.assert_called_once_with()
+    assert window._shutdown_timer.isActive()
+    assert window._shutdown_timeout_timer.isActive()
+    assert window._shutdown_timeout_timer.interval() == SHUTDOWN_TIMEOUT_MS
+    window.close.assert_not_called()
+
+
+def test_repeated_close_attempts_do_not_duplicate_timers(window: MainWindow) -> None:
+    window.heretic_tab.worker_running = True
+
+    window.closeEvent(_close_event())
+    poll_timer = window._shutdown_timer
+    timeout_timer = window._shutdown_timeout_timer
+    second_event = _close_event()
+    window.closeEvent(second_event)
+
+    assert window._shutdown_timer is poll_timer
+    assert window._shutdown_timeout_timer is timeout_timer
+    assert window.training_tab.request_shutdown.call_count == 1
+    assert window.heretic_tab.request_shutdown.call_count == 1
+    second_event.ignore.assert_called_once_with()
+    window.close.assert_not_called()
+
+
+def test_worker_exit_closes_window_and_stops_timers(window: MainWindow) -> None:
+    window.training_tab.worker_running = True
+    window.closeEvent(_close_event())
+
+    window.training_tab.worker_running = False
+    window.heretic_tab.worker_running = False
+    window._shutdown_timer.timeout.emit()
+
+    window.close.assert_called_once_with()
+    assert not window._shutdown_timer.isActive()
+    assert not window._shutdown_timeout_timer.isActive()
+
+
+def test_timeout_force_stops_workers_and_closes(window: MainWindow) -> None:
+    window.training_tab.worker_running = True
+    window.heretic_tab.worker_running = True
+    window.closeEvent(_close_event())
+
+    window._shutdown_timeout_timer.timeout.emit()
+
+    window.training_tab.worker.stop.assert_called_once_with()
+    window.heretic_tab.worker.stop.assert_called_once_with()
+    window.close.assert_called_once_with()
+    assert not window._shutdown_timer.isActive()
+    assert not window._shutdown_timeout_timer.isActive()
+    assert window._shutdown_escalated is True
+    notices = [call.args[0] for call in window.banner.show_notice.call_args_list]
+    assert any(n.level == "warning" and "Forcing" in n.message for n in notices)
+
+    # A repeated timeout must not escalate a second time.
+    window._shutdown_timeout_timer.timeout.emit()
+    window.training_tab.worker.stop.assert_called_once_with()
+    window.heretic_tab.worker.stop.assert_called_once_with()
+    window.close.assert_called_once_with()
+
+
+def test_forced_stop_failure_still_closes_and_bypasses_worker_check(window: MainWindow) -> None:
+    window.training_tab.worker_running = True
+    window.training_tab.worker.stop.side_effect = RuntimeError("stop failed")
+    window.closeEvent(_close_event())
+
+    window._escalate_shutdown()
+
+    window.close.assert_called_once_with()
+    assert window._force_close is True
+
+    final_event = _close_event()
+    with patch.object(QMainWindow, "closeEvent") as super_close:
+        window.closeEvent(final_event)
+    super_close.assert_called_once()
+    final_event.ignore.assert_not_called()
+
+
+def test_shutdown_tolerates_tabs_without_worker_attributes(window: MainWindow) -> None:
+    bare = MagicMock(spec=["request_shutdown"])
+    window.training_tab = bare
+    window.heretic_tab = bare
+
+    assert window._workers_running() is False
+    window._force_stop_worker(bare)  # no worker/_active_worker attribute: no-op
+    window._poll_worker_shutdown()  # no worker attribute: treat as exited and close
+    window.close.assert_called_once_with()

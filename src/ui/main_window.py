@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer
@@ -32,6 +33,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 APP_VERSION = "0.1.0"
 NOTICE_TIMEOUT_MS = 12_000
+SHUTDOWN_POLL_MS = 100
+SHUTDOWN_TIMEOUT_MS = 15_000
 
 
 class NoticeBanner(QFrame):
@@ -224,51 +227,106 @@ class MainWindow(QMainWindow):
         self.datasets_tab.scan_datasets()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
-        workers_running = (
-            self.training_tab.worker_running
-            or self.heretic_tab.worker_running
+        if not getattr(self, "_force_close", False) and self._workers_running():
+            event.ignore()
+            self._begin_shutdown()
+            return
+        self._finalize_close(event)
+
+    def _workers_running(self) -> bool:
+        """Whether either engine tab still reports a live worker process."""
+        return any(
+            bool(getattr(tab, "worker_running", False))
+            for tab in (self.training_tab, self.heretic_tab)
         )
 
-        if workers_running:
-            event.ignore()
+    def _begin_shutdown(self) -> None:
+        """Start a bounded, non-blocking shutdown of any active workers."""
+        # Repeated close attempts must not spin or create duplicate timers.
+        if getattr(self, "_shutdown_pending", False):
+            return
+        self._shutdown_pending = True
+        self._shutdown_escalated = False
+        self._force_close = False
 
-            if not getattr(self, "_shutdown_pending", False):
-                self._shutdown_pending = True
+        self.banner.show_notice(
+            Notice(
+                "info",
+                "Stopping active workers before closing. Please wait for the workers to exit.",
+            )
+        )
 
-                self.banner.show_notice(
-                    Notice(
-                        "info",
-                        "Stopping active workers before closing. "
-                        "Please wait for the workers to exit.",
-                    )
-                )
+        for tab in (self.training_tab, self.heretic_tab):
+            request_shutdown = getattr(tab, "request_shutdown", None)
+            if callable(request_shutdown):
+                request_shutdown()
 
-                self.training_tab.request_shutdown()
-                self.heretic_tab.request_shutdown()
+        self._shutdown_timer = QTimer(self)
+        self._shutdown_timer.setInterval(SHUTDOWN_POLL_MS)
+        self._shutdown_timer.timeout.connect(self._poll_worker_shutdown)
+        self._shutdown_timer.start()
 
-                self._shutdown_timer = QTimer(self)
-                self._shutdown_timer.setInterval(100)
-                self._shutdown_timer.timeout.connect(
-                    self._poll_worker_shutdown
-                )
-                self._shutdown_timer.start()
+        self._shutdown_timeout_timer = QTimer(self)
+        self._shutdown_timeout_timer.setSingleShot(True)
+        self._shutdown_timeout_timer.setInterval(SHUTDOWN_TIMEOUT_MS)
+        self._shutdown_timeout_timer.timeout.connect(self._escalate_shutdown)
+        self._shutdown_timeout_timer.start()
 
+    def _poll_worker_shutdown(self) -> None:
+        """Close the window once every engine worker has actually exited."""
+        if self._workers_running():
             return
 
+        self._stop_shutdown_timers()
+        self.close()
+
+    def _escalate_shutdown(self) -> None:
+        """Force-stop stubborn workers, then close regardless of the outcome."""
+        if getattr(self, "_shutdown_escalated", False):
+            return
+        self._shutdown_escalated = True
+        self._stop_shutdown_timers()
+
+        self.banner.show_notice(
+            Notice(
+                "warning",
+                "Workers did not exit in time. Forcing them to stop and closing now.",
+            )
+        )
+
+        for tab in (self.training_tab, self.heretic_tab):
+            self._force_stop_worker(tab)
+
+        # A forced worker may still report as running; bypass that check so the
+        # window closes even when a forced stop fails or is unavailable.
+        self._force_close = True
+        self.close()
+
+    @staticmethod
+    def _force_stop_worker(tab) -> None:
+        """Best-effort hard stop of a tab's worker; never raises to the caller."""
+        worker = getattr(tab, "worker", None)
+        if worker is None:
+            worker = getattr(tab, "_active_worker", None)
+        stop = getattr(worker, "stop", None)
+        if not callable(stop):
+            return
+        # A failed forced stop must not block the window from closing.
+        with suppress(Exception):
+            stop()
+
+    def _stop_shutdown_timers(self) -> None:
+        for name in ("_shutdown_timer", "_shutdown_timeout_timer"):
+            timer = getattr(self, name, None)
+            if timer is not None:
+                timer.stop()
+
+    def _finalize_close(self, event) -> None:
+        self._stop_shutdown_timers()
         self.context.monitor.stop()
         self.context.registry.wait_for_idle(3000)
         super().closeEvent(event)
 
-    def _poll_worker_shutdown(self) -> None:
-        """Close the application once all engine workers have exited."""
-        if (
-            self.training_tab.worker_running
-            or self.heretic_tab.worker_running
-        ):
-            return
-
-        self._shutdown_timer.stop()
-        self.close()
     def _report_settings_issues(self) -> None:
         issues = self.context.settings_service.issues
         if not issues:
@@ -356,4 +414,3 @@ class MainWindow(QMainWindow):
 
 
 __all__ = ["MainWindow", "NoticeBanner", "APP_VERSION"]
-

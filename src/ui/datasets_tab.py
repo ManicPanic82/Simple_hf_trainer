@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -49,6 +50,37 @@ class DatasetSearchWorker(QThread):
             self.search_failed.emit(str(error))
 
 
+class DatasetDownloadWorker(QThread):
+    """Background worker that imports a Hub dataset snapshot into the local library."""
+
+    progress = Signal(float, str)
+    download_finished = Signal(Path)
+    download_failed = Signal(str)
+
+    def __init__(
+        self,
+        service: DatasetService,
+        repo_id: str,
+        target_dir: Path,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.service = service
+        self.repo_id = repo_id
+        self.target_dir = target_dir
+
+    def run(self):
+        try:
+            target = self.service.download_dataset(
+                self.repo_id,
+                self.target_dir,
+                progress=lambda frac, msg: self.progress.emit(frac, msg),
+            )
+            self.download_finished.emit(target)
+        except Exception as error:
+            self.download_failed.emit(str(error))
+
+
 class DatasetsTab(TabPage):
     use_dataset_in_training = Signal(str)
 
@@ -69,6 +101,8 @@ class DatasetsTab(TabPage):
         self._storage = storage
         self._service = dataset_service or DatasetService(storage)
         self._search_worker: DatasetSearchWorker | None = None
+        self._download_worker: DatasetDownloadWorker | None = None
+        self._selected_hub_dataset: HubDatasetRecord | None = None
         self._selected_local_dataset: LocalDatasetRecord | None = None
         self._local_datasets: list[LocalDatasetRecord] = []
 
@@ -83,7 +117,9 @@ class DatasetsTab(TabPage):
         search_row = QHBoxLayout()
         search_row.setSpacing(8)
         self.search_input = QLineEdit(search)
-        self.search_input.setPlaceholderText("Search datasets (e.g. alpaca, dolly, oasst, python)...")
+        self.search_input.setPlaceholderText(
+            "Search datasets (e.g. alpaca, dolly, oasst, python)..."
+        )
         self.search_input.returnPressed.connect(self._start_search)
         search_row.addWidget(self.search_input, 1)
 
@@ -94,14 +130,42 @@ class DatasetsTab(TabPage):
 
         self.results_table = QTableWidget(0, 4, search)
         self.results_table.setHorizontalHeaderLabels(["Dataset ID", "Author", "Downloads", "Likes"])
-        self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
         self.results_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.results_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.results_table.itemSelectionChanged.connect(self._on_hub_dataset_selected)
         self.results_table.setMaximumHeight(150)
         search.add(self.results_table)
+
+        download_row = QHBoxLayout()
+        download_row.setSpacing(8)
+        self.download_button = QPushButton("Download / Import", search)
+        self.download_button.setObjectName("Primary")
+        self.download_button.setEnabled(False)
+        self.download_button.clicked.connect(self._start_download)
+        download_row.addWidget(self.download_button)
+
+        self.download_progress = QProgressBar(search)
+        self.download_progress.setRange(0, 100)
+        self.download_progress.setValue(0)
+        self.download_progress.setVisible(False)
+        download_row.addWidget(self.download_progress, 1)
+
+        self.download_status_label = QLabel("", search)
+        self.download_status_label.setObjectName("Muted")
+        download_row.addWidget(self.download_status_label)
+        search.add_layout(download_row)
         self.add(search)
 
         # --- 2. Local Datasets and Preparation Card ---
@@ -127,10 +191,18 @@ class DatasetsTab(TabPage):
         self.local_table = QTableWidget(0, 5, local)
         self.local_table.setHorizontalHeaderLabels(["Name", "Format", "Rows", "Size", "Status"])
         self.local_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.local_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.local_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.local_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.local_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.local_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.local_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.local_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.local_table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.ResizeToContents
+        )
         self.local_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.local_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.local_table.itemSelectionChanged.connect(self._on_local_dataset_selected)
@@ -180,7 +252,9 @@ class DatasetsTab(TabPage):
         self.val_pill = Pill("No selection", "off", preview)
         preview.add_header_widget(self.val_pill)
 
-        self.validation_row = FieldRow("Validation", "Select a local dataset above to inspect", caption_width=104)
+        self.validation_row = FieldRow(
+            "Validation", "Select a local dataset above to inspect", caption_width=104
+        )
         self.columns_row = FieldRow("Columns", "—", caption_width=104)
         preview.add(self.validation_row)
         preview.add(self.columns_row)
@@ -253,6 +327,58 @@ class DatasetsTab(TabPage):
         self.search_status_pill.set_state("error", "Search error")
         self._state.notify("error", f"Hub dataset search failed: {error}")
 
+    def _on_hub_dataset_selected(self) -> None:
+        selected = self.results_table.selectedItems()
+        if not selected:
+            self._selected_hub_dataset = None
+            self.download_button.setEnabled(False)
+            return
+
+        row = selected[0].row()
+        item = self.results_table.item(row, 0)
+        self._selected_hub_dataset = item.data(Qt.ItemDataRole.UserRole)
+        self.download_button.setEnabled(True)
+        self.download_status_label.setText("")
+
+    def _start_download(self) -> None:
+        if not self._selected_hub_dataset:
+            return
+        repo_id = self._selected_hub_dataset.repo_id
+        target_dir = self._storage.path_for("datasets_dir") / repo_id.replace("/", "--")
+
+        self.download_button.setEnabled(False)
+        self.download_progress.setVisible(True)
+        self.download_progress.setValue(0)
+        self.download_status_label.setText(f"Starting download of {repo_id}…")
+
+        self._download_worker = DatasetDownloadWorker(
+            self._service,
+            repo_id,
+            target_dir,
+            self,
+        )
+        self._download_worker.progress.connect(self._on_download_progress)
+        self._download_worker.download_finished.connect(self._on_download_finished)
+        self._download_worker.download_failed.connect(self._on_download_failed)
+        self._download_worker.start()
+
+    def _on_download_progress(self, fraction: float, message: str) -> None:
+        self.download_progress.setValue(int(fraction * 100))
+        self.download_status_label.setText(message)
+
+    def _on_download_finished(self, destination: Path) -> None:
+        self.download_button.setEnabled(True)
+        self.download_progress.setValue(100)
+        self.download_status_label.setText("Download complete")
+        self._state.notify("info", f"Dataset imported to {destination.name}")
+        self.scan_datasets()
+
+    def _on_download_failed(self, error: str) -> None:
+        self.download_button.setEnabled(True)
+        self.download_progress.setVisible(False)
+        self.download_status_label.setText("Download failed")
+        self._state.notify("error", f"Dataset download failed: {error}")
+
     # --- Local Datasets ---
 
     def scan_datasets(self) -> None:
@@ -305,7 +431,12 @@ class DatasetsTab(TabPage):
                 self.inst_combo.setCurrentText(col)
             elif "input" in lower or "context" in lower:
                 self.inp_combo.setCurrentText(col)
-            elif "output" in lower or "response" in lower or "answer" in lower or "completion" in lower:
+            elif (
+                "output" in lower
+                or "response" in lower
+                or "answer" in lower
+                or "completion" in lower
+            ):
                 self.out_combo.setCurrentText(col)
 
         # Preview dataset
@@ -316,7 +447,10 @@ class DatasetsTab(TabPage):
             preview: DatasetPreview = self._service.preview_dataset(file_path, num_rows=10)
             self.columns_row.set_value(", ".join(preview.columns) if preview.columns else "None")
             self.validation_row.set_value(preview.validation_message)
-            self.val_pill.set_state("ok" if preview.is_valid_for_training else "warn", "Ready" if preview.is_valid_for_training else "Needs columns")
+            self.val_pill.set_state(
+                "ok" if preview.is_valid_for_training else "warn",
+                "Ready" if preview.is_valid_for_training else "Needs columns",
+            )
 
             # Fill preview table
             cols = preview.columns
@@ -331,7 +465,9 @@ class DatasetsTab(TabPage):
                         val_str = val_str[:120] + "…"
                     self.preview_table.setItem(r_idx, c_idx, QTableWidgetItem(val_str))
 
-            self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            self.preview_table.horizontalHeader().setSectionResizeMode(
+                QHeaderView.ResizeMode.ResizeToContents
+            )
         except Exception as error:
             self.validation_row.set_value(f"Preview error: {error}")
             self.val_pill.set_state("error", "Error")

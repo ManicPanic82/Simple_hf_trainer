@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.state import AppState
-from services.model_service import HubModelRecord, LocalModelRecord, ModelService
+from services.model_service import DownloadCancelled, HubModelRecord, LocalModelRecord, ModelService
 from services.storage_service import Severity, StorageService
 from ui.components import Card, FieldRow, Pill, StoragePathRow
 from ui.storage_action import open_storage_path
@@ -64,24 +65,35 @@ class ModelInfoWorker(QThread):
 
 
 class ModelDownloadWorker(QThread):
-    """Background worker for downloading a model snapshot."""
+    """Background worker for a cooperative, per-file model download."""
 
     progress = Signal(float, str)
     download_finished = Signal(Path)
     download_failed = Signal(str)
+    download_cancelled = Signal(str, Path, int, int)
 
     def __init__(self, service: ModelService, repo_id: str, parent=None):
         super().__init__(parent)
         self.service = service
         self.repo_id = repo_id
+        self._cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        """Request cancellation; the service checks this between files."""
+        self._cancel_event.set()
 
     def run(self):
         try:
             target = self.service.download_model(
                 self.repo_id,
                 progress_callback=lambda frac, msg: self.progress.emit(frac, msg),
+                cancel=self._cancel_event,
             )
             self.download_finished.emit(target)
+        except DownloadCancelled as error:
+            self.download_cancelled.emit(
+                str(error), error.destination, error.downloaded, error.total
+            )
         except Exception as error:
             self.download_failed.emit(str(error))
 
@@ -112,6 +124,7 @@ class ModelsTab(TabPage):
         self._selected_hub_model: HubModelRecord | None = None
         self._selected_local_model: LocalModelRecord | None = None
         self._local_models: list[LocalModelRecord] = []
+        self._publishing_models = False
 
         # --- 1. Hub Search Card ---
         search = Card(
@@ -125,7 +138,9 @@ class ModelsTab(TabPage):
         search_row = QHBoxLayout()
         search_row.setSpacing(8)
         self.search_input = QLineEdit(search)
-        self.search_input.setPlaceholderText("Search models (e.g. Qwen2.5-0.5B, Llama-3.2-1B, Gemma)...")
+        self.search_input.setPlaceholderText(
+            "Search models (e.g. Qwen2.5-0.5B, Llama-3.2-1B, Gemma)..."
+        )
         self.search_input.returnPressed.connect(self._start_search)
         search_row.addWidget(self.search_input, 1)
 
@@ -136,10 +151,18 @@ class ModelsTab(TabPage):
 
         self.results_table = QTableWidget(0, 4, search)
         self.results_table.setHorizontalHeaderLabels(["Model ID", "Author", "Downloads", "Likes"])
-        self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
         self.results_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.results_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.results_table.itemSelectionChanged.connect(self._on_hub_model_selected)
@@ -160,6 +183,11 @@ class ModelsTab(TabPage):
         self.download_button.setEnabled(False)
         self.download_button.clicked.connect(self._start_download)
         action_row.addWidget(self.download_button)
+
+        self.cancel_download_button = QPushButton("Cancel", search)
+        self.cancel_download_button.setEnabled(False)
+        self.cancel_download_button.clicked.connect(self._cancel_download)
+        action_row.addWidget(self.cancel_download_button)
 
         self.download_progress = QProgressBar(search)
         self.download_progress.setRange(0, 100)
@@ -197,12 +225,24 @@ class ModelsTab(TabPage):
         library.add_layout(scan_row)
 
         self.library_table = QTableWidget(0, 5, library)
-        self.library_table.setHorizontalHeaderLabels(["Name", "Type", "Format", "Size", "6 GB VRAM"])
-        self.library_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.library_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.library_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.library_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.library_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.library_table.setHorizontalHeaderLabels(
+            ["Name", "Type", "Format", "Size", "6 GB VRAM"]
+        )
+        self.library_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.library_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.library_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.library_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.library_table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.ResizeToContents
+        )
         self.library_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.library_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.library_table.itemSelectionChanged.connect(self._on_local_model_selected)
@@ -232,7 +272,9 @@ class ModelsTab(TabPage):
         )
         self.compat_model_row = FieldRow("Model", "None selected", caption_width=120)
         self.compat_arch_row = FieldRow("Architecture", "—", caption_width=120)
-        self.compat_assessment_row = FieldRow("Assessment", "Select a model above to assess VRAM fit", caption_width=120)
+        self.compat_assessment_row = FieldRow(
+            "Assessment", "Select a model above to assess VRAM fit", caption_width=120
+        )
         formats.add(self.compat_model_row)
         formats.add(self.compat_arch_row)
         formats.add(self.compat_assessment_row)
@@ -241,6 +283,13 @@ class ModelsTab(TabPage):
         self.finish()
         self.refresh()
         self.scan_library()
+
+        # Training/Heretic publish their outputs through shared state. Rescan
+        # from disk when that happens; connect after the startup scan so this
+        # does not trigger a second, duplicate scan during construction.
+        if not getattr(self, "_models_changed_connected", False):
+            self._state.models_changed.connect(self.scan_local_models)
+            self._models_changed_connected = True
 
     def _open_storage(self, label: str) -> None:
         open_storage_path(self._state, self._storage, label)
@@ -334,7 +383,9 @@ class ModelsTab(TabPage):
         files_count = len(info.get("files", []))
         self.hub_files_row.set_value(f"{files_count} files ({size_mb:.1f} MB)")
         self.compat_arch_row.set_value(info.get("pipeline_tag") or "Unknown")
-        self.compat_assessment_row.set_value(info.get("vram_detail") or "Runtime memory estimate unavailable")
+        self.compat_assessment_row.set_value(
+            info.get("vram_detail") or "Runtime memory estimate unavailable"
+        )
 
     def _on_hub_model_info_failed(self, repo_id: str, error: str) -> None:
         if self._selected_hub_model is None or self._selected_hub_model.repo_id != repo_id:
@@ -348,36 +399,84 @@ class ModelsTab(TabPage):
             return
         repo_id = self._selected_hub_model.repo_id
         self.download_button.setEnabled(False)
+        self.cancel_download_button.setEnabled(True)
+        self.cancel_download_button.setText("Cancel")
         self.download_progress.setVisible(True)
-        self.download_progress.setValue(10)
+        self.download_progress.setRange(0, 100)
+        self.download_progress.setValue(0)
         self.download_status_label.setText(f"Downloading {repo_id}...")
 
         self._download_worker = ModelDownloadWorker(self._service, repo_id, self)
         self._download_worker.progress.connect(self._on_download_progress)
         self._download_worker.download_finished.connect(self._on_download_finished)
         self._download_worker.download_failed.connect(self._on_download_failed)
+        self._download_worker.download_cancelled.connect(self._on_download_cancelled)
         self._download_worker.start()
 
+    def _cancel_download(self) -> None:
+        worker = self._download_worker
+        if worker is None or not worker.isRunning():
+            return
+        self.cancel_download_button.setEnabled(False)
+        self.cancel_download_button.setText("Cancelling…")
+        self.download_status_label.setText("Cancelling — stopping after the current file...")
+        worker.cancel()
+
     def _on_download_progress(self, fraction: float, message: str) -> None:
-        self.download_progress.setValue(int(fraction * 100))
+        # ``fraction`` is completed files / total files, so this bar reflects
+        # real file counts rather than an invented byte/percentage estimate.
+        self.download_progress.setValue(max(0, min(100, int(fraction * 100))))
         self.download_status_label.setText(message)
 
-    def _on_download_finished(self, destination: Path) -> None:
+    def _reset_download_controls(self) -> None:
         self.download_button.setEnabled(True)
+        self.cancel_download_button.setEnabled(False)
+        self.cancel_download_button.setText("Cancel")
+
+    def _on_download_finished(self, destination: Path) -> None:
+        self._reset_download_controls()
         self.download_progress.setValue(100)
         self.download_status_label.setText("Download complete")
         self._state.notify("info", f"Model downloaded to {destination.name}")
         self.scan_library()
 
     def _on_download_failed(self, error: str) -> None:
-        self.download_button.setEnabled(True)
+        self._reset_download_controls()
         self.download_progress.setVisible(False)
         self.download_status_label.setText("Download failed")
         self._state.notify("error", f"Model download failed: {error}")
 
+    def _on_download_cancelled(
+        self, reason: str, destination: Path, downloaded: int, total: int
+    ) -> None:
+        self._reset_download_controls()
+        self.download_progress.setValue(int(100 * downloaded / total) if total else 0)
+        self.download_status_label.setText(
+            f"Cancelled after {downloaded}/{total} files; "
+            f"partial files kept in {destination.name} (no mid-file cancellation)."
+        )
+        self._state.notify("warning", f"Download cancelled: {reason}")
+
     # --- Local library ---
 
     def scan_library(self) -> None:
+        """Rescan from disk and publish the result to shared state."""
+        self._scan_library(publish=True)
+
+    def scan_local_models(self) -> None:
+        """Rescan from disk when shared model state changes.
+
+        This is a slot for ``AppState.models_changed``. It deliberately does
+        not publish again: ``scan_library`` publishes, which emits that same
+        signal, so republishing here would recurse indefinitely. Emissions
+        caused by our own ``scan_library`` are ignored to avoid a duplicate
+        scan of the same files.
+        """
+        if self._publishing_models:
+            return
+        self._scan_library(publish=False)
+
+    def _scan_library(self, *, publish: bool) -> None:
         records = self._service.scan_local_models()
         self._local_models = records
         self.library_table.setRowCount(len(records))
@@ -391,7 +490,12 @@ class ModelsTab(TabPage):
             self.library_table.setItem(row, 4, QTableWidgetItem(rec.status_detail))
 
         self.library_pill.set_state("ok" if records else "off", f"{len(records)} models")
-        self._state.publish_models(records)
+        if publish:
+            self._publishing_models = True
+            try:
+                self._state.publish_models(records)
+            finally:
+                self._publishing_models = False
 
     def _on_local_model_selected(self) -> None:
         selected = self.library_table.selectedItems()

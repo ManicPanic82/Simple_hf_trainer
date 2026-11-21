@@ -77,7 +77,9 @@ class HereticTab(TabPage):
         grid.addWidget(QLabel("Target Model:", setup), 0, 0)
         self.model_combo = QComboBox(setup)
         self.model_combo.setEditable(True)
-        self.model_combo.setPlaceholderText("Select local model or enter HF repo (e.g. Qwen/Qwen2.5-0.5B-Instruct)")
+        self.model_combo.setPlaceholderText(
+            "Select local model or enter HF repo (e.g. Qwen/Qwen2.5-0.5B-Instruct)"
+        )
         grid.addWidget(self.model_combo, 0, 1, 1, 3)
 
         grid.addWidget(QLabel("Optimization Trials:", setup), 1, 0)
@@ -147,7 +149,9 @@ class HereticTab(TabPage):
         self.log_view = QTextEdit(control)
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(140)
-        self.log_view.setStyleSheet("font-family: 'Cascadia Mono', Consolas, monospace; font-size: 8.5pt;")
+        self.log_view.setStyleSheet(
+            "font-family: 'Cascadia Mono', Consolas, monospace; font-size: 8.5pt;"
+        )
         control.add(self.log_view)
 
         self.last_model_row = FieldRow("Saved model", "None saved yet", caption_width=104)
@@ -227,7 +231,18 @@ class HereticTab(TabPage):
         self.run_button.setEnabled(is_avail and has_no_active)
         if is_avail:
             self.set_status("Heretic engine available", "ok")
-            self.run_button.setToolTip("Run Heretic abliteration")
+            # Compatibility cannot be proven from metadata alone. Never block on
+            # an unknown, but make the limitation visible before the user starts.
+            if self._state.hardware is None:
+                self.run_button.setToolTip(
+                    "Run Heretic abliteration — GPU information unavailable; "
+                    "model compatibility is not verified."
+                )
+            else:
+                self.run_button.setToolTip(
+                    "Run Heretic abliteration — verify the selected model fits in "
+                    "VRAM; compatibility is not certified automatically."
+                )
         else:
             level = "error" if status.badge() == "check failed" else "warn"
             self.set_status(f"Heretic {status.badge()}", level)
@@ -304,6 +319,8 @@ class HereticTab(TabPage):
             )
             self._active_worker = worker
 
+            worker.log_line.connect(self._on_worker_log_line)
+            worker.protocol_error.connect(self._on_worker_protocol_error)
             worker.started.connect(self._on_worker_started)
             worker.message_received.connect(self._on_worker_message)
             worker.exited.connect(self._on_worker_exited)
@@ -342,7 +359,10 @@ class HereticTab(TabPage):
                     "Cancellation requested. Heretic has up to 10 seconds to stop cleanly before it is terminated.",
                 )
             else:
-                self._state.notify("warning", "The cancellation request could not be sent; waiting for worker exit.")
+                self._state.notify(
+                    "warning",
+                    "The cancellation request could not be sent; waiting for worker exit.",
+                )
 
     @property
     def worker_running(self) -> bool:
@@ -353,13 +373,37 @@ class HereticTab(TabPage):
         """Request graceful cancellation before the application closes."""
         if self.worker_running and self._active_job_id:
             self._cancel_heretic()
+
     def _on_worker_started(self) -> None:
         if self._active_job_id and self._active_worker:
             self._job_manager.mark_running(self._active_job_id, pid=self._active_worker.pid)
 
+    def _on_worker_log_line(self, line: str) -> None:
+        line = str(line).strip()
+        if line:
+            self.log_view.append(f"[engine stderr] {line}")
+
+    def _on_worker_protocol_error(self, error: object) -> None:
+        self.log_view.append(f"[protocol warning] {error}")
+
     def _on_worker_message(self, msg: WorkerMessage) -> None:
         payload = msg.payload
-        if msg.type is MessageType.PROGRESS:
+        if msg.type is MessageType.HELLO:
+            pid = payload.get("pid")
+            detail = f" (PID {pid})" if pid else ""
+            self.log_view.append(f"[worker] Started{detail}.")
+
+        elif msg.type is MessageType.READY:
+            engine = payload.get("engine", "Heretic engine")
+            version = payload.get("version")
+            detail = f" {version}" if version else ""
+            self.log_view.append(f"[worker] {engine} ready{detail}.")
+
+        elif msg.type is MessageType.ERROR:
+            message = str(payload.get("message") or "Unknown worker error.")
+            self.log_view.append(f"[engine error] {message}")
+
+        elif msg.type is MessageType.PROGRESS:
             frac = float(payload.get("fraction", 0.0))
             self.progress_bar.setValue(int(frac * 100))
             step = payload.get("step")
@@ -385,9 +429,12 @@ class HereticTab(TabPage):
 
         elif msg.type is MessageType.JOB_COMPLETE:
             success = bool(payload.get("success", False))
-            message = str(payload.get("message") or (
-                "Heretic abliteration completed." if success else "Heretic finished with error."
-            ))
+            message = str(
+                payload.get("message")
+                or (
+                    "Heretic abliteration completed." if success else "Heretic finished with error."
+                )
+            )
             self._pending_completion = (success, message)
 
     def _on_worker_exited(self, exit_code: int) -> None:
@@ -399,7 +446,7 @@ class HereticTab(TabPage):
                 self._job_manager.handle_worker_exit(job_id, exit_code)
             elif completion is not None and completion[0] and exit_code == 0:
                 self._job_manager.mark_succeeded(job_id, message=completion[1])
-                self._model_service.scan_local_models()
+                self._state.publish_models(self._model_service.scan_local_models())
                 self._state.notify("info", "Heretic abliteration completed successfully!")
             elif completion is not None:
                 self._job_manager.mark_failed(
@@ -424,4 +471,3 @@ class HereticTab(TabPage):
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self._state.notify("error", f"Heretic worker failed to start: {error}")
-

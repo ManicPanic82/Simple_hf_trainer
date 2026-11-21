@@ -18,6 +18,11 @@ import threading
 import traceback
 from pathlib import Path
 
+# stdout is reserved for the JSON-lines protocol. OutputInterceptor replaces
+# sys.stdout while Heretic runs, so keep a private handle to the real stream;
+# emitting through the interceptor would recurse back into emit() forever.
+_PROTOCOL_STREAM = sys.stdout
+
 
 def emit(
     msg_type: str,
@@ -36,12 +41,13 @@ def emit(
     if seq is not None:
         data["seq"] = seq
     line = json.dumps(data, ensure_ascii=False)
-    sys.stdout.write(line + "\n")
-    sys.stdout.flush()
+    _PROTOCOL_STREAM.write(line + "\n")
+    _PROTOCOL_STREAM.flush()
 
 
 def start_cancel_listener(job_id: str) -> None:
     """Convert a protocol cancel message into an interrupt of the Heretic main thread."""
+
     def listen() -> None:
         for line in sys.stdin:
             try:
@@ -91,7 +97,15 @@ class OutputInterceptor:
             if trial_match:
                 self.current_trial = int(trial_match.group(1))
                 frac = min(0.95, 0.1 + 0.8 * (self.current_trial / self.total_trials))
-                emit("progress", self.job_id, {"fraction": round(frac, 3), "step": self.current_trial, "total": self.total_trials})
+                emit(
+                    "progress",
+                    self.job_id,
+                    {
+                        "fraction": round(frac, 3),
+                        "step": self.current_trial,
+                        "total": self.total_trials,
+                    },
+                )
                 emit("log", self.job_id, {"message": line_str, "level": "info"})
                 continue
 
@@ -101,13 +115,21 @@ class OutputInterceptor:
                 num = int(refusals_match.group(1))
                 denom = int(refusals_match.group(2))
                 rate = round(num / max(1, denom), 4)
-                emit("metric", self.job_id, {"name": "refusal_rate", "value": rate, "step": self.current_trial})
+                emit(
+                    "metric",
+                    self.job_id,
+                    {"name": "refusal_rate", "value": rate, "step": self.current_trial},
+                )
 
             # Parse KL divergence
             kl_match = re.search(r"KL divergence:\s*([\d\.]+)", line_str)
             if kl_match:
                 kl_val = float(kl_match.group(1))
-                emit("metric", self.job_id, {"name": "kl_divergence", "value": kl_val, "step": self.current_trial})
+                emit(
+                    "metric",
+                    self.job_id,
+                    {"name": "kl_divergence", "value": kl_val, "step": self.current_trial},
+                )
 
             emit("log", self.job_id, {"message": line_str, "level": "info"})
 
@@ -130,7 +152,6 @@ def run_worker(cfg: dict) -> int:
         return 1
 
     emit("hello", payload={"role": "heretic-worker", "pid": os.getpid()})
-    start_cancel_listener(job_id)
 
     install_dummy_prompt_output()
 
@@ -144,7 +165,14 @@ def run_worker(cfg: dict) -> int:
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
 
-    emit("log", job_id, {"message": f"Configuring abliteration for {model_name} ({trials} trials)...", "level": "info"})
+    emit(
+        "log",
+        job_id,
+        {
+            "message": f"Configuring abliteration for {model_name} ({trials} trials)...",
+            "level": "info",
+        },
+    )
     emit("progress", job_id, {"fraction": 0.05, "step": 0, "total": trials})
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -197,7 +225,9 @@ split = "train[:5]"
 column = "text"
 """
 
-    with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False, encoding="utf-8") as temp_cfg:
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".toml", delete=False, encoding="utf-8"
+    ) as temp_cfg:
         temp_cfg.write(toml_content)
         temp_cfg_path = temp_cfg.name
 
@@ -209,13 +239,26 @@ column = "text"
     try:
         from heretic.main import main as heretic_main
 
-        emit("log", job_id, {"message": "Starting Heretic abliteration optimization...", "level": "info"})
+        emit(
+            "log",
+            job_id,
+            {"message": "Starting Heretic abliteration optimization...", "level": "info"},
+        )
         sys.stdout = interceptor  # type: ignore[assignment]
         sys.argv = ["heretic"]
+        # Defer the stdin reader until after all engine imports. On Windows a
+        # daemon thread blocked reading an open QProcess stdin pipe deadlocks
+        # the numpy/torch C-extension imports performed by Heretic. Cancellation
+        # messages sent during startup stay buffered in the pipe until here.
+        start_cancel_listener(job_id)
         result = heretic_main()
         rc = 0 if result is None else int(result)
     except KeyboardInterrupt:
-        emit("log", job_id, {"message": "Cancellation acknowledged; Heretic is stopping.", "level": "warning"})
+        emit(
+            "log",
+            job_id,
+            {"message": "Cancellation acknowledged; Heretic is stopping.", "level": "warning"},
+        )
         rc = 130
     except Exception as error:
         tb = traceback.format_exc()
@@ -228,8 +271,14 @@ column = "text"
 
     if rc == 0:
         emit("progress", job_id, {"fraction": 1.0, "step": trials, "total": trials})
-        artifacts = [p.name for p in output_dir.iterdir() if p.is_file()] if output_dir.is_dir() else []
-        emit("result", job_id, {"output_dir": str(output_dir), "model_saved": True, "artifacts": artifacts})
+        artifacts = (
+            [p.name for p in output_dir.iterdir() if p.is_file()] if output_dir.is_dir() else []
+        )
+        emit(
+            "result",
+            job_id,
+            {"output_dir": str(output_dir), "model_saved": True, "artifacts": artifacts},
+        )
         emit("job_complete", job_id, {"success": True, "exit_code": 0})
     else:
         emit("job_complete", job_id, {"success": False, "exit_code": rc})
