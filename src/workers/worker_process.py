@@ -47,6 +47,7 @@ class WorkerProcess(QObject):
         self._args = list(args or [])
         self._buffer = b""
         self._stopping = False
+        self._cwd = str(cwd) if cwd is not None else ""
 
         self._process = QProcess(self)
         self._process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
@@ -72,6 +73,13 @@ class WorkerProcess(QObject):
 
     def start(self) -> None:
         self._buffer = b""
+        # Make the actual launch target visible in the UI log. Engine imports can
+        # silently use the wrong interpreter if settings or environment variables
+        # resolve to a different Python, so record exactly what QProcess runs.
+        self.log_line.emit(
+            f"[launch] interpreter={self._interpreter} "
+            f"script={self._script} args={len(self._args)} cwd={self._cwd or '<inherited>'}"
+        )
         self._process.start()
 
     @property

@@ -16,6 +16,11 @@ import time
 import traceback
 from pathlib import Path
 
+# stdout is reserved for the JSON-lines protocol. Engine libraries print their
+# own banners and progress to sys.stdout, so keep a private handle to the real
+# protocol stream before any engine import can replace or wrap sys.stdout.
+_PROTOCOL_STREAM = sys.stdout
+
 
 def emit(
     msg_type: str,
@@ -34,8 +39,8 @@ def emit(
     if seq is not None:
         data["seq"] = seq
     line = json.dumps(data, ensure_ascii=False)
-    sys.stdout.write(line + "\n")
-    sys.stdout.flush()
+    _PROTOCOL_STREAM.write(line + "\n")
+    _PROTOCOL_STREAM.flush()
 
 
 def validate_dataset_path(dataset_path: str | Path | None) -> Path:
@@ -137,7 +142,9 @@ def load_dataset_file(file_path: Path):
             formatted_rows.append({"text": text})
         elif "prompt" in row and ("response" in row or "completion" in row):
             response = row.get("response", row.get("completion", ""))
-            formatted_rows.append({"text": f"### Instruction:\n{row['prompt']}\n\n### Response:\n{response}"})
+            formatted_rows.append(
+                {"text": f"### Instruction:\n{row['prompt']}\n\n### Response:\n{response}"}
+            )
         else:
             raise ValueError(
                 f"Dataset row {index + 1} has no supported training fields. "
@@ -166,6 +173,11 @@ def create_sft_config(config_class, config_kwargs: dict, max_seq_length: int):
 
 
 def run_worker(cfg: dict) -> int:
+    # Unsloth/torch/transformers write human-readable banners and progress to
+    # stdout. Route that chatter to stderr (the host's log channel) so stdout
+    # carries protocol JSON only; emit() uses the captured _PROTOCOL_STREAM.
+    sys.stdout = sys.stderr
+
     job_id = cfg.get("job_id", "unsloth-job")
     model_name = cfg.get("model_name", "unsloth/Qwen2.5-0.5B-Instruct")
     dataset_path_str = cfg.get("dataset_path", "")
@@ -178,40 +190,64 @@ def run_worker(cfg: dict) -> int:
     lora_r = int(cfg.get("lora_r", 8))
     lora_alpha = int(cfg.get("lora_alpha", 16))
 
+    print("[checkpoint] Before HELLO", file=sys.stderr, flush=True)
     emit("hello", payload={"role": "unsloth-worker", "pid": os.getpid()})
-    cancel_event = start_cancel_listener(job_id)
 
     try:
+        print("[checkpoint] Before dataset validation", file=sys.stderr, flush=True)
         dataset_path = validate_dataset_path(dataset_path_str)
+        print(
+            f"[checkpoint] Dataset validated: {dataset_path}",
+            file=sys.stderr,
+            flush=True,
+        )
     except (ValueError, FileNotFoundError) as error:
         emit("error", job_id, {"message": str(error)})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
 
     try:
+        print("[checkpoint] Before importing unsloth", file=sys.stderr, flush=True)
         import unsloth
+
+        print("[checkpoint] Unsloth imported", file=sys.stderr, flush=True)
+
         from unsloth import FastLanguageModel
+
+        print("[checkpoint] FastLanguageModel imported", file=sys.stderr, flush=True)
 
         engine_version = getattr(unsloth, "__version__", "unknown")
         emit("ready", payload={"engine": "unsloth", "version": engine_version})
+        print("[checkpoint] READY emitted", file=sys.stderr, flush=True)
     except Exception as error:
         emit("error", job_id, {"message": f"Failed to import Unsloth: {error}"})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
 
-    emit("log", job_id, {"message": f"Loading model {model_name} in 4-bit precision...", "level": "info"})
+    emit(
+        "log",
+        job_id,
+        {"message": f"Loading model {model_name} in 4-bit precision...", "level": "info"},
+    )
     emit("progress", job_id, {"fraction": 0.05, "step": 0, "total": max_steps})
 
     try:
+        print("[checkpoint] Before model loading", file=sys.stderr, flush=True)
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=max_seq_length,
             dtype=None,
             load_in_4bit=True,
         )
-        emit("log", job_id, {"message": "Model loaded successfully. Preparing LoRA adapters...", "level": "info"})
+        print("[checkpoint] Model loaded successfully", file=sys.stderr, flush=True)
+        emit(
+            "log",
+            job_id,
+            {"message": "Model loaded successfully. Preparing LoRA adapters...", "level": "info"},
+        )
         emit("progress", job_id, {"fraction": 0.15, "step": 0, "total": max_steps})
 
+        print("[checkpoint] Before LoRA configuration", file=sys.stderr, flush=True)
         model = FastLanguageModel.get_peft_model(
             model,
             r=lora_r,
@@ -222,13 +258,32 @@ def run_worker(cfg: dict) -> int:
             random_state=42,
         )
 
-        emit("log", job_id, {"message": "LoRA adapters configured. Loading dataset...", "level": "info"})
+        print("[checkpoint] LoRA configured successfully", file=sys.stderr, flush=True)
+        emit(
+            "log",
+            job_id,
+            {"message": "LoRA adapters configured. Loading dataset...", "level": "info"},
+        )
 
+        print("[checkpoint] Before dataset loading", file=sys.stderr, flush=True)
         train_dataset = load_dataset_file(dataset_path)
+        print(
+            f"[checkpoint] Dataset loaded: {len(train_dataset)} samples",
+            file=sys.stderr,
+            flush=True,
+        )
         if len(train_dataset) == 0:
             raise ValueError(f"Training dataset is empty: {dataset_path}")
-        emit("log", job_id, {"message": f"Loaded {len(train_dataset)} samples from {dataset_path}", "level": "info"})
+        emit(
+            "log",
+            job_id,
+            {
+                "message": f"Loaded {len(train_dataset)} samples from {dataset_path}",
+                "level": "info",
+            },
+        )
 
+        print("[checkpoint] Before Trainer/TRL imports", file=sys.stderr, flush=True)
         from transformers import TrainerCallback
         from trl import SFTConfig, SFTTrainer
 
@@ -238,16 +293,35 @@ def run_worker(cfg: dict) -> int:
                     loss_val = float(logs["loss"])
                     step = int(state.global_step)
                     emit("metric", job_id, {"name": "loss", "value": loss_val, "step": step})
-                    emit("log", job_id, {"message": f"Step {step}/{max_steps} · loss: {loss_val:.4f}", "level": "info"})
+                    emit(
+                        "log",
+                        job_id,
+                        {
+                            "message": f"Step {step}/{max_steps} · loss: {loss_val:.4f}",
+                            "level": "info",
+                        },
+                    )
 
             def on_step_end(self, args, state, control, **kwargs):
                 if cancel_event.is_set():
                     control.should_training_stop = True
-                    emit("log", job_id, {"message": "Cancellation acknowledged; stopping after the current training step.", "level": "warning"})
+                    emit(
+                        "log",
+                        job_id,
+                        {
+                            "message": "Cancellation acknowledged; stopping after the current training step.",
+                            "level": "warning",
+                        },
+                    )
                 step = int(state.global_step)
                 frac = min(0.95, max(0.15, 0.15 + 0.8 * (step / max(1, max_steps))))
-                emit("progress", job_id, {"fraction": round(frac, 3), "step": step, "total": max_steps})
+                emit(
+                    "progress",
+                    job_id,
+                    {"fraction": round(frac, 3), "step": step, "total": max_steps},
+                )
 
+        print("[checkpoint] Trainer/TRL imports complete", file=sys.stderr, flush=True)
         sft_kwargs = {
             "output_dir": str(output_dir / "temp_checkpoints"),
             "per_device_train_batch_size": batch_size,
@@ -263,8 +337,11 @@ def run_worker(cfg: dict) -> int:
             "optim": "adamw_8bit",
             "seed": 42,
         }
+        print("[checkpoint] Before SFTConfig construction", file=sys.stderr, flush=True)
         config = create_sft_config(SFTConfig, sft_kwargs, max_seq_length)
+        print("[checkpoint] SFTConfig constructed", file=sys.stderr, flush=True)
 
+        print("[checkpoint] Before SFTTrainer construction", file=sys.stderr, flush=True)
         trainer = None
         for extra in (
             {"tokenizer": tokenizer, "processing_class": tokenizer},
@@ -272,6 +349,11 @@ def run_worker(cfg: dict) -> int:
             {"tokenizer": tokenizer},
         ):
             try:
+                print(
+                    f"[checkpoint] Trying SFTTrainer arguments: {list(extra)}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 trainer = SFTTrainer(
                     model=model,
                     train_dataset=train_dataset,
@@ -279,35 +361,82 @@ def run_worker(cfg: dict) -> int:
                     callbacks=[ProtocolCallback()],
                     **extra,
                 )
+                print(
+                    "[checkpoint] SFTTrainer constructed successfully", file=sys.stderr, flush=True
+                )
                 break
-            except TypeError:
+            except TypeError as error:
+                print(
+                    f"[checkpoint] SFTTrainer argument combination rejected: {error}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 continue
 
         if trainer is None:
             raise RuntimeError("Could not initialize SFTTrainer with installed TRL.")
 
-        emit("log", job_id, {"message": f"Beginning fine-tuning for {max_steps} steps...", "level": "info"})
+        emit(
+            "log",
+            job_id,
+            {"message": f"Beginning fine-tuning for {max_steps} steps...", "level": "info"},
+        )
+
+        # The cancellation listener must not block on stdin during the heavyweight
+        # engine imports. On Windows a daemon thread reading an open QProcess stdin
+        # pipe deadlocks the numpy/torch C-extension imports performed by
+        # ``import unsloth``. Cancel messages sent during startup stay buffered in
+        # the pipe and are consumed as soon as this listener starts.
+        print("[checkpoint] Before cancellation listener", file=sys.stderr, flush=True)
+        cancel_event = start_cancel_listener(job_id)
+        print("[checkpoint] Cancellation listener started", file=sys.stderr, flush=True)
+
         start_time = time.time()
+        print("[checkpoint] Before trainer.train()", file=sys.stderr, flush=True)
         train_result = trainer.train()
+        print("[checkpoint] trainer.train() returned", file=sys.stderr, flush=True)
         elapsed = round(time.time() - start_time, 1)
 
         final_loss = float(getattr(train_result, "training_loss", float("nan")))
         was_cancelled = cancel_event.is_set()
-        status_message = "Training cancelled after the current step." if was_cancelled else f"Training completed in {elapsed}s with final loss {final_loss:.4f}"
-        emit("log", job_id, {"message": status_message, "level": "warning" if was_cancelled else "info"})
-        emit("progress", job_id, {"fraction": 0.98, "step": int(getattr(getattr(trainer, "state", None), "global_step", max_steps)), "total": max_steps})
+        status_message = (
+            "Training cancelled after the current step."
+            if was_cancelled
+            else f"Training completed in {elapsed}s with final loss {final_loss:.4f}"
+        )
+        emit(
+            "log",
+            job_id,
+            {"message": status_message, "level": "warning" if was_cancelled else "info"},
+        )
+        emit(
+            "progress",
+            job_id,
+            {
+                "fraction": 0.98,
+                "step": int(getattr(getattr(trainer, "state", None), "global_step", max_steps)),
+                "total": max_steps,
+            },
+        )
 
         output_dir.mkdir(parents=True, exist_ok=True)
+        print("[checkpoint] Before saving model", file=sys.stderr, flush=True)
         model.save_pretrained(str(output_dir))
+        print("[checkpoint] Model saved", file=sys.stderr, flush=True)
         tokenizer.save_pretrained(str(output_dir))
+        print("[checkpoint] Tokenizer saved", file=sys.stderr, flush=True)
 
         artifacts = [p.name for p in output_dir.iterdir() if p.is_file()]
-        emit("result", job_id, {
-            "output_dir": str(output_dir),
-            "final_loss": final_loss,
-            "elapsed_s": elapsed,
-            "artifacts": artifacts,
-        })
+        emit(
+            "result",
+            job_id,
+            {
+                "output_dir": str(output_dir),
+                "final_loss": final_loss,
+                "elapsed_s": elapsed,
+                "artifacts": artifacts,
+            },
+        )
         if was_cancelled:
             emit("job_complete", job_id, {"success": False, "exit_code": 130, "cancelled": True})
             return 130
@@ -323,28 +452,67 @@ def run_worker(cfg: dict) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    print("[startup] Entered main()", file=sys.stderr, flush=True)
+
     parser = argparse.ArgumentParser(description="Unsloth training worker")
     parser.add_argument("--config", help="Path to JSON config or inline JSON string")
     args = parser.parse_args(argv)
+
+    print(
+        f"[startup] Arguments parsed; config supplied: {bool(args.config)}",
+        file=sys.stderr,
+        flush=True,
+    )
 
     cfg = {}
     if args.config:
         text = args.config.strip()
         if text.startswith("{"):
             cfg = json.loads(text)
+            print(
+                "[startup] Inline JSON configuration parsed",
+                file=sys.stderr,
+                flush=True,
+            )
         elif Path(text).is_file():
             with open(text, encoding="utf-8") as f:
                 cfg = json.load(f)
+            print(
+                "[startup] Configuration file loaded",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(
+                "[startup] Config argument is neither inline JSON nor an existing file",
+                file=sys.stderr,
+                flush=True,
+            )
 
     if not cfg and not sys.stdin.isatty():
-        # Check stdin if available without blocking indefinitely
+        print(
+            "[startup] No configuration loaded; checking stdin",
+            file=sys.stderr,
+            flush=True,
+        )
         with contextlib.suppress(Exception):
             line = sys.stdin.readline().strip()
             if line:
                 cfg = json.loads(line)
+                print(
+                    "[startup] Configuration loaded from stdin",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
+    print(
+        f"[startup] Calling run_worker(); config loaded: {bool(cfg)}",
+        file=sys.stderr,
+        flush=True,
+    )
     return run_worker(cfg)
 
 
 if __name__ == "__main__":
+    print("[startup] Worker script entry point reached", file=sys.stderr, flush=True)
     raise SystemExit(main())

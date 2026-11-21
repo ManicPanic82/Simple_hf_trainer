@@ -344,6 +344,15 @@ class HereticTab(TabPage):
             else:
                 self._state.notify("warning", "The cancellation request could not be sent; waiting for worker exit.")
 
+    @property
+    def worker_running(self) -> bool:
+        """Whether the Heretic worker process is still active."""
+        return self._active_worker is not None and self._active_worker.running
+
+    def request_shutdown(self) -> None:
+        """Request graceful cancellation before the application closes."""
+        if self.worker_running and self._active_job_id:
+            self._cancel_heretic()
     def _on_worker_started(self) -> None:
         if self._active_job_id and self._active_worker:
             self._job_manager.mark_running(self._active_job_id, pid=self._active_worker.pid)
@@ -415,3 +424,4 @@ class HereticTab(TabPage):
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self._state.notify("error", f"Heretic worker failed to start: {error}")
+

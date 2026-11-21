@@ -1,3 +1,4 @@
+
 """GPU-exclusive job orchestration foundation.
 
 Unsloth and Heretic are heavyweight engines that must never hold GPU memory at
@@ -12,6 +13,7 @@ names the current owner, which the UI surfaces to the user.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -20,6 +22,8 @@ from enum import StrEnum
 from itertools import count
 
 from PySide6.QtCore import QObject, Signal
+
+logger = logging.getLogger(__name__)
 
 
 class JobState(StrEnum):
@@ -122,6 +126,7 @@ class JobManager(QObject):
         self._mutex = threading.RLock()
         self._jobs: dict[str, JobSnapshot] = {}
         self._ids = count(1)
+        logger.info("JobManager initialized; GPU lock free, empty job queue.")
 
     # -- queries ---------------------------------------------------------
 
@@ -179,16 +184,22 @@ class JobManager(QObject):
         return job
 
     def mark_running(self, job_id: str, *, pid: int | None = None) -> JobSnapshot | None:
+        logger.debug("Marking job %s as RUNNING (pid=%s).", job_id, pid)
+
         def transition(job: JobSnapshot) -> JobSnapshot:
             if job.state is not JobState.STARTING:
                 return job
             message = f"pid {pid}" if pid is not None else job.message
             return replace(job, state=JobState.RUNNING, started_at=self._clock(), message=message)
 
-        return self._transition(job_id, transition)
+        result = self._transition(job_id, transition)
+        if result:
+            logger.info("Job %s state changed to RUNNING.", job_id)
+        return result
 
     def request_cancel(self, job_id: str) -> bool:
         """Ask a running job to stop. The GPU stays reserved until it exits."""
+        logger.info("Cancellation requested for job %s.", job_id)
 
         def transition(job: JobSnapshot) -> JobSnapshot:
             if not job.is_active:
@@ -197,21 +208,31 @@ class JobManager(QObject):
 
         before = self.snapshot(job_id)
         if before is None or not before.is_active:
+            logger.warning("Cancellation request ignored; job %s not active.", job_id)
             return False
         self._transition(job_id, transition)
+        logger.debug("Job %s state set to CANCELLING.", job_id)
         return True
 
     def mark_succeeded(self, job_id: str, *, message: str = "") -> JobSnapshot | None:
+        logger.info("Job %s succeeded. %s", job_id, message)
         return self._finish(job_id, JobState.SUCCEEDED, message=message, exit_code=0)
 
     def mark_failed(
         self, job_id: str, *, message: str, exit_code: int | None = None
     ) -> JobSnapshot | None:
+        logger.error(
+            "Job %s failed with exit_code=%s. Message: %s",
+            job_id,
+            exit_code,
+            message,
+        )
         return self._finish(job_id, JobState.FAILED, message=message, exit_code=exit_code)
 
     def mark_cancelled(
         self, job_id: str, *, message: str = "Cancelled by user."
     ) -> JobSnapshot | None:
+        logger.info("Job %s cancelled. %s", job_id, message)
         return self._finish(job_id, JobState.CANCELLED, message=message)
 
     def handle_worker_exit(self, job_id: str, exit_code: int) -> JobSnapshot | None:

@@ -224,12 +224,51 @@ class MainWindow(QMainWindow):
         self.datasets_tab.scan_datasets()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        workers_running = (
+            self.training_tab.worker_running
+            or self.heretic_tab.worker_running
+        )
+
+        if workers_running:
+            event.ignore()
+
+            if not getattr(self, "_shutdown_pending", False):
+                self._shutdown_pending = True
+
+                self.banner.show_notice(
+                    Notice(
+                        "info",
+                        "Stopping active workers before closing. "
+                        "Please wait for the workers to exit.",
+                    )
+                )
+
+                self.training_tab.request_shutdown()
+                self.heretic_tab.request_shutdown()
+
+                self._shutdown_timer = QTimer(self)
+                self._shutdown_timer.setInterval(100)
+                self._shutdown_timer.timeout.connect(
+                    self._poll_worker_shutdown
+                )
+                self._shutdown_timer.start()
+
+            return
+
         self.context.monitor.stop()
         self.context.registry.wait_for_idle(3000)
         super().closeEvent(event)
 
-    # -- reactions -------------------------------------------------------
+    def _poll_worker_shutdown(self) -> None:
+        """Close the application once all engine workers have exited."""
+        if (
+            self.training_tab.worker_running
+            or self.heretic_tab.worker_running
+        ):
+            return
 
+        self._shutdown_timer.stop()
+        self.close()
     def _report_settings_issues(self) -> None:
         issues = self.context.settings_service.issues
         if not issues:
@@ -317,3 +356,4 @@ class MainWindow(QMainWindow):
 
 
 __all__ = ["MainWindow", "NoticeBanner", "APP_VERSION"]
+

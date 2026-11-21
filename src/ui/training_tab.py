@@ -363,6 +363,8 @@ class TrainingTab(TabPage):
             )
             self._active_worker = worker
 
+            worker.log_line.connect(self._on_worker_log_line)
+            worker.protocol_error.connect(self._on_worker_protocol_error)
             worker.started.connect(self._on_worker_started)
             worker.message_received.connect(self._on_worker_message)
             worker.exited.connect(self._on_worker_exited)
@@ -403,13 +405,38 @@ class TrainingTab(TabPage):
             else:
                 self._state.notify("warning", "The cancellation request could not be sent; waiting for worker exit.")
 
+    @property
+    def worker_running(self) -> bool:
+        """Whether the training worker process is still active."""
+        return self._active_worker is not None and self._active_worker.running
+
+    def request_shutdown(self) -> None:
+        """Request graceful cancellation before the application closes."""
+        if self.worker_running and self._active_job_id:
+            self._cancel_training()
     def _on_worker_started(self) -> None:
         if self._active_job_id and self._active_worker:
             self._job_manager.mark_running(self._active_job_id, pid=self._active_worker.pid)
 
     def _on_worker_message(self, msg: WorkerMessage) -> None:
         payload = msg.payload
-        if msg.type is MessageType.PROGRESS:
+
+        if msg.type is MessageType.HELLO:
+            pid = payload.get("pid")
+            detail = f" (PID {pid})" if pid else ""
+            self.log_view.append(f"[worker] Started{detail}.")
+
+        elif msg.type is MessageType.READY:
+            engine = payload.get("engine", "training engine")
+            version = payload.get("version")
+            detail = f" {version}" if version else ""
+            self.log_view.append(f"[worker] {engine} ready{detail}.")
+
+        elif msg.type is MessageType.ERROR:
+            message = str(payload.get("message") or "Unknown worker error.")
+            self.log_view.append(f"[engine error] {message}")
+
+        elif msg.type is MessageType.PROGRESS:
             frac = float(payload.get("fraction", 0.0))
             self.progress_bar.setValue(int(frac * 100))
             step = payload.get("step")
@@ -425,7 +452,7 @@ class TrainingTab(TabPage):
 
         elif msg.type is MessageType.LOG:
             line = payload.get("message", "")
-            self.log_view.append(line)
+            self.log_view.append(str(line))
 
         elif msg.type is MessageType.RESULT:
             out_dir = payload.get("output_dir", "")
@@ -434,32 +461,66 @@ class TrainingTab(TabPage):
         elif msg.type is MessageType.JOB_COMPLETE:
             success = bool(payload.get("success", False))
             message = str(payload.get("message") or (
-                "Training completed successfully." if success else "Training finished with error."
+                "Training completed successfully." if success
+                else "Training finished with error."
             ))
             self._pending_completion = (success, message)
+
+    def _on_worker_log_line(self, line: str) -> None:
+        line = str(line).strip()
+        if line:
+            self.log_view.append(f"[engine stderr] {line}")
+
+    def _on_worker_protocol_error(self, error: object) -> None:
+        self.log_view.append(f"[protocol warning] {error}")
+
 
     def _on_worker_exited(self, exit_code: int) -> None:
         if self._active_job_id:
             job_id = self._active_job_id
             snapshot = self._job_manager.snapshot(job_id)
             completion = self._pending_completion
+
             if snapshot is not None and snapshot.state.value == "cancelling":
-                self._job_manager.handle_worker_exit(job_id, exit_code)
+                failed_job = self._job_manager.handle_worker_exit(job_id, exit_code)
+                if failed_job is not None:
+                    self.log_view.append(
+                        f"[worker exit] Job {job_id} finished after cancellation "
+                        f"(exit code {exit_code}): {failed_job.message or failed_job.state.value}"
+                    )
+
             elif completion is not None and completion[0] and exit_code == 0:
                 self._job_manager.mark_succeeded(job_id, message=completion[1])
+                self.log_view.append(f"[worker exit] {completion[1]}")
                 self._model_service.scan_local_models()
                 self._state.notify("info", "LoRA fine-tuning completed successfully!")
+
             elif completion is not None:
-                self._job_manager.mark_failed(
+                failed_job = self._job_manager.mark_failed(
                     job_id,
                     message=completion[1],
                     exit_code=exit_code,
                 )
+                self.log_view.append(
+                    f"[worker exit] {completion[1]} (exit code {exit_code})"
+                )
+
             else:
-                self._job_manager.handle_worker_exit(job_id, exit_code)
+                failed_job = self._job_manager.handle_worker_exit(job_id, exit_code)
+                if failed_job is not None and failed_job.state.value == "failed":
+                    self.log_view.append(
+                        f"[worker exit] {failed_job.message}"
+                    )
+                elif failed_job is not None:
+                    self.log_view.append(
+                        f"[worker exit] Job finished with state "
+                        f"{failed_job.state.value} (exit code {exit_code})."
+                    )
+
             self._active_job_id = None
             self._active_worker = None
             self._pending_completion = None
+
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
@@ -472,3 +533,4 @@ class TrainingTab(TabPage):
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self._state.notify("error", f"Unsloth worker failed to start: {error}")
+
