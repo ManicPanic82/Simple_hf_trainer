@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import suppress
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -32,6 +32,9 @@ from services.storage_service import Severity, StorageService
 from ui.components import Card, FieldRow, Pill, StoragePathRow
 from ui.storage_action import open_storage_path
 from ui.tab_page import TabPage
+
+# Data file types that can represent a dataset split/file on disk.
+_DATA_FILE_SUFFIXES = frozenset({".jsonl", ".json", ".csv", ".parquet", ".arrow"})
 
 
 class DatasetSearchWorker(QThread):
@@ -106,6 +109,8 @@ class DatasetsTab(TabPage):
         self._selected_hub_dataset: HubDatasetRecord | None = None
         self._selected_local_dataset: LocalDatasetRecord | None = None
         self._local_datasets: list[LocalDatasetRecord] = []
+        self._selected_split_path: Path | None = None
+        self._selected_split_valid = False
 
         # --- 1. Hub Search Card ---
         search = Card(
@@ -252,6 +257,19 @@ class DatasetsTab(TabPage):
         )
         self.val_pill = Pill("No selection", "off", preview)
         preview.add_header_widget(self.val_pill)
+
+        split_row = QHBoxLayout()
+        split_row.setSpacing(8)
+        self.split_label = QLabel("Split / file:", preview)
+        self.split_label.setObjectName("Muted")
+        self.split_label.setMinimumWidth(104)
+        split_row.addWidget(self.split_label)
+        self.split_combo = QComboBox(preview)
+        self.split_combo.setEnabled(False)
+        self.split_combo.setToolTip("Select a data file/split to preview and use")
+        self.split_combo.currentIndexChanged.connect(self._sync_split_selection)
+        split_row.addWidget(self.split_combo, 1)
+        preview.add_layout(split_row)
 
         self.validation_row = FieldRow(
             "Validation", "Select a local dataset above to inspect", caption_width=104
@@ -400,33 +418,91 @@ class DatasetsTab(TabPage):
         self.local_pill.set_state("ok" if records else "off", f"{len(records)} datasets")
         self._state.publish_datasets(records)
 
-    def _on_local_dataset_selected(self) -> None:
-        selected = self.local_table.selectedItems()
-        if not selected:
-            self._selected_local_dataset = None
+    @staticmethod
+    def _candidate_data_files(path: Path) -> list[Path]:
+        """List real data files available for a selected dataset.
+
+        A dataset may be a single file or a directory (for example a downloaded
+        Hub snapshot whose splits are stored as ``train-00000-of-00001.parquet``
+        files). File names are returned as-is; split names are never invented.
+        """
+        directory = path if path.is_dir() else path.parent
+        candidates: dict[str, Path] = {}
+        try:
+            entries = list(directory.iterdir())
+        except OSError:
+            entries = []
+        for entry in entries:
+            if entry.is_file() and entry.suffix.lower() in _DATA_FILE_SUFFIXES:
+                candidates[entry.name] = entry
+        # Always include the selected file itself, even with an unusual suffix.
+        if path.is_file():
+            candidates[path.name] = path
+        return [candidates[name] for name in sorted(candidates, key=str.lower)]
+
+    def _populate_split_combo(self, rec: LocalDatasetRecord) -> None:
+        """Fill the split/file selector with the dataset's actual data files."""
+        files = self._candidate_data_files(rec.path)
+        with QSignalBlocker(self.split_combo):
+            self.split_combo.clear()
+            for file_path in files:
+                self.split_combo.addItem(file_path.name, file_path)
+            # A selector with a single choice adds no value.
+            self.split_combo.setEnabled(len(files) > 1)
+            if files:
+                preferred = rec.path if rec.path.is_file() and rec.path in files else files[0]
+                self.split_combo.setCurrentIndex(files.index(preferred))
+        self.split_combo.setToolTip(
+            "Choose a split/file to preview and use"
+            if len(files) > 1
+            else "Only one data file is available for this dataset"
+        )
+        self._sync_split_selection()
+
+    def _clear_split_selection(self) -> None:
+        """Reset the selector and preview when no local dataset is selected."""
+        with QSignalBlocker(self.split_combo):
+            self.split_combo.clear()
+            self.split_combo.setEnabled(False)
+        self._selected_split_path = None
+        self._selected_split_valid = False
+        self.prepare_button.setEnabled(False)
+        self.use_in_training_btn.setEnabled(False)
+        self.validation_row.set_value("Select a local dataset above to inspect")
+        self.columns_row.set_value("—")
+        self.val_pill.set_state("off", "No selection")
+        self.preview_table.clear()
+        self.preview_table.setColumnCount(0)
+        self.preview_table.setRowCount(0)
+
+    def _sync_split_selection(self, _index: int | None = None) -> None:
+        """Apply the currently selected split/file to the preview and actions."""
+        index = self.split_combo.currentIndex()
+        path = self.split_combo.itemData(index, Qt.ItemDataRole.UserRole) if index >= 0 else None
+        if not isinstance(path, Path):
+            self._selected_split_path = None
+            self._selected_split_valid = False
             self.prepare_button.setEnabled(False)
             self.use_in_training_btn.setEnabled(False)
             return
 
-        row = selected[0].row()
-        item = self.local_table.item(row, 0)
-        rec: LocalDatasetRecord = item.data(Qt.ItemDataRole.UserRole)
-        self._selected_local_dataset = rec
-        self.prepare_button.setEnabled(True)
-        self.use_in_training_btn.setEnabled(rec.is_prepared)
+        self._selected_split_path = path
+        self.prepare_button.setEnabled(self._selected_local_dataset is not None)
+        self._show_preview(path)
 
-        # Update column selectors
+    def _update_column_selectors(self, columns: list[str]) -> None:
+        """Refresh the template column selectors for the selected split."""
         self.inst_combo.clear()
         self.inp_combo.clear()
         self.out_combo.clear()
         self.inp_combo.addItem("")
-        for col in rec.columns:
+        for col in columns:
             self.inst_combo.addItem(col)
             self.inp_combo.addItem(col)
             self.out_combo.addItem(col)
 
         # Guess default column names
-        for col in rec.columns:
+        for col in columns:
             lower = col.lower()
             if "instruct" in lower or "prompt" in lower or "question" in lower:
                 self.inst_combo.setCurrentText(col)
@@ -440,8 +516,18 @@ class DatasetsTab(TabPage):
             ):
                 self.out_combo.setCurrentText(col)
 
-        # Preview dataset
-        self._show_preview(rec.path)
+    def _on_local_dataset_selected(self) -> None:
+        selected = self.local_table.selectedItems()
+        if not selected:
+            self._selected_local_dataset = None
+            self._clear_split_selection()
+            return
+
+        row = selected[0].row()
+        item = self.local_table.item(row, 0)
+        rec: LocalDatasetRecord = item.data(Qt.ItemDataRole.UserRole)
+        self._selected_local_dataset = rec
+        self._populate_split_combo(rec)
 
     def _show_preview(self, file_path: Path) -> None:
         try:
@@ -452,6 +538,9 @@ class DatasetsTab(TabPage):
                 "ok" if preview.is_valid_for_training else "warn",
                 "Ready" if preview.is_valid_for_training else "Needs columns",
             )
+            self._selected_split_valid = bool(preview.is_valid_for_training)
+            if preview.columns:
+                self._update_column_selectors(preview.columns)
 
             # Fill preview table
             cols = preview.columns
@@ -472,9 +561,11 @@ class DatasetsTab(TabPage):
         except Exception as error:
             self.validation_row.set_value(f"Preview error: {error}")
             self.val_pill.set_state("error", "Error")
+            self._selected_split_valid = False
+        self.use_in_training_btn.setEnabled(self._selected_split_valid)
 
     def _prepare_dataset(self) -> None:
-        if not self._selected_local_dataset:
+        if not self._selected_local_dataset or not self._selected_split_path:
             return
         inst = self.inst_combo.currentText().strip()
         inp = self.inp_combo.currentText().strip()
@@ -485,7 +576,7 @@ class DatasetsTab(TabPage):
 
         try:
             output_file = self._service.prepare_dataset(
-                self._selected_local_dataset.path,
+                self._selected_split_path,
                 instruction_col=inst,
                 input_col=inp,
                 output_col=out,
@@ -496,8 +587,8 @@ class DatasetsTab(TabPage):
             self._state.notify("error", f"Preparation failed: {error}")
 
     def _on_use_in_training(self) -> None:
-        if self._selected_local_dataset:
-            self.use_dataset_in_training.emit(str(self._selected_local_dataset.path))
+        if self._selected_split_path:
+            self.use_dataset_in_training.emit(str(self._selected_split_path))
 
     def request_shutdown(self) -> None:
         """Stop background Hub threads when the application closes."""

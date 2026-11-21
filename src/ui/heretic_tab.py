@@ -25,7 +25,7 @@ from ui.components import Card, FieldRow, StoragePathRow
 from ui.engine_card import EngineCard
 from ui.storage_action import open_storage_path
 from ui.tab_page import TabPage
-from workers.job_manager import JobManager, JobSnapshot
+from workers.job_manager import JobManager, JobSnapshot, JobState
 from workers.protocol import MessageType, WorkerMessage
 from workers.worker_process import WorkerProcess
 
@@ -55,6 +55,8 @@ class HereticTab(TabPage):
         self._active_worker: WorkerProcess | None = None
         self._active_job_id: str | None = None
         self._pending_completion: tuple[bool, str] | None = None
+        self._queued_jobs: dict[str, dict] = {}
+        self._queue_connected = False
 
         # --- Engine Status Card ---
         self.engine_card = EngineCard(
@@ -284,8 +286,54 @@ class HereticTab(TabPage):
             self._state.notify("error", f"Cannot start Heretic: {error}")
             return
 
+        config_data = self._build_config(job.job_id, model_name)
+        if job.state is JobState.QUEUED:
+            self._queued_jobs[job.job_id] = {
+                "config": config_data,
+                "interpreter": interpreter,
+                "script": worker_script,
+            }
+            self._connect_queue_signal()
+            self.log_view.append(
+                f"[queue] Job {job.job_id} queued; it starts when the GPU is free."
+            )
+            self._state.notify("info", f"Heretic job {job.job_id} queued.")
+            return
+
+        self._launch_job(job.job_id, config_data, interpreter, worker_script)
+
+    def _build_config(self, job_id: str, model_name: str) -> dict:
+        outputs_dir = self._storage.path_for("outputs_dir") / f"heretic_{job_id}"
+        outputs_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "job_id": job_id,
+            "model_name": model_name,
+            "trials": self.trials_spin.value(),
+            "export_strategy": self.export_combo.currentText(),
+            "output_dir": str(outputs_dir / "model"),
+            "seed": 42,
+        }
+
+    def _connect_queue_signal(self) -> None:
+        if self._queue_connected:
+            return
+        signal = getattr(self._job_manager, "job_start_requested", None)
+        if signal is not None and hasattr(signal, "connect"):
+            signal.connect(self._on_job_start_requested)
+            self._queue_connected = True
+
+    def _on_job_start_requested(self, snapshot: JobSnapshot) -> None:
+        if snapshot.state is not JobState.STARTING:
+            return
+        spec = self._queued_jobs.pop(snapshot.job_id, None)
+        if spec is None:
+            return
+        self.log_view.append(f"[queue] Job {snapshot.job_id} is starting now.")
+        self._launch_job(snapshot.job_id, spec["config"], spec["interpreter"], spec["script"])
+
+    def _launch_job(self, job_id: str, config_data: dict, interpreter, worker_script) -> None:
         try:
-            self._active_job_id = job.job_id
+            self._active_job_id = job_id
             self._pending_completion = None
             self.run_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
@@ -294,18 +342,6 @@ class HereticTab(TabPage):
             self.trial_metric_label.setText("Trial: 0")
             self.refusal_metric_label.setText("Refusal: —")
             self.kl_metric_label.setText("KL Div: —")
-
-            outputs_dir = self._storage.path_for("outputs_dir") / f"heretic_{job.job_id}"
-            outputs_dir.mkdir(parents=True, exist_ok=True)
-
-            config_data = {
-                "job_id": job.job_id,
-                "model_name": model_name,
-                "trials": self.trials_spin.value(),
-                "export_strategy": self.export_combo.currentText(),
-                "output_dir": str(outputs_dir / "model"),
-                "seed": 42,
-            }
 
             scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
             scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -333,7 +369,7 @@ class HereticTab(TabPage):
                     f"Heretic worker started but setup reported an error: {error}",
                 )
             else:
-                self._handle_setup_failure(job.job_id, error)
+                self._handle_setup_failure(job_id, error)
 
     def _handle_setup_failure(self, job_id: str, error: Exception) -> None:
         """Fail a job whose worker could not be prepared or started."""

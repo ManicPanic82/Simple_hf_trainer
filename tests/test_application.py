@@ -8,6 +8,7 @@ from app.application import create_window
 from services.engine_registry import EngineState, EngineStatus
 from services.hardware_monitor import GpuStats, HardwareSnapshot
 from ui.main_window import MainWindow
+from workers.job_manager import JobSnapshot, JobState
 
 
 @pytest.fixture
@@ -109,14 +110,27 @@ def test_gpu_lock_state_is_visible(window: MainWindow, context) -> None:
     assert window.status_strip.lock_pill.text() == "GPU free"
 
 
-def test_second_engine_is_rejected_while_gpu_is_busy(window: MainWindow, context) -> None:
-    from workers.job_manager import GpuBusyError
+def test_second_engine_is_queued_while_gpu_is_busy(window: MainWindow, context) -> None:
+    started: list[JobSnapshot] = []
+    context.job_manager.job_start_requested.connect(started.append)
 
-    context.job_manager.submit("unsloth")
-    with pytest.raises(GpuBusyError) as error:
-        context.job_manager.submit("heretic")
-    assert error.value.owner_engine == "unsloth"
-    context.job_manager.mark_failed("unsloth-1", message="test cleanup")
+    first = context.job_manager.submit("unsloth")
+    queued = context.job_manager.submit("heretic")
+
+    assert queued.state is JobState.QUEUED
+    assert context.job_manager.gpu_owner == first.job_id
+    assert [job.job_id for job in started] == [queued.job_id]
+
+    # Completion of the first job promotes the second one automatically.
+    context.job_manager.mark_succeeded(first.job_id)
+    promoted = context.job_manager.snapshot(queued.job_id)
+    assert promoted is not None
+    assert promoted.state is JobState.STARTING
+    assert context.job_manager.gpu_owner == queued.job_id
+    assert [job.state for job in started] == [JobState.QUEUED, JobState.STARTING]
+
+    # Clean up both terminal records.
+    context.job_manager.mark_failed(queued.job_id, message="test cleanup")
 
 
 def test_settings_issue_is_reported_in_banner(context, qapp) -> None:

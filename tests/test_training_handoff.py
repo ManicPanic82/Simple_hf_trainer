@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from services.engine_registry import UNSLOTH, EngineState, EngineStatus
 from services.hardware_monitor import GpuStats, HardwareSnapshot
 from ui.training_tab import TrainingTab
+from workers.job_manager import JobState
 from workers.protocol import MessageType, WorkerMessage
 
 
@@ -86,7 +87,7 @@ def test_unknown_hardware_advisory_does_not_block_start(qapp, tmp_path: Path, mo
     state = MagicMock()
     model_service = MagicMock()
     job_manager = MagicMock()
-    job_manager.submit.return_value = SimpleNamespace(job_id="job-2")
+    job_manager.submit.return_value = SimpleNamespace(job_id="job-2", state=JobState.STARTING)
 
     tab = _make_tab(tmp_path, job_manager=job_manager, model_service=model_service, state=state)
 

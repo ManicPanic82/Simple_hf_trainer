@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from services.credentials import CredentialStore
+from services.registry import Registry, to_record_dict
 from services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
@@ -160,9 +161,11 @@ class DatasetService:
         self,
         storage: StorageService,
         credentials: CredentialStore | None = None,
+        catalog: Registry | None = None,
     ) -> None:
         self._storage = storage
         self._credentials = credentials
+        self._catalog = catalog
 
     def _get_token(self) -> str | None:
         if self._credentials and self._credentials.available:
@@ -171,22 +174,24 @@ class DatasetService:
 
     def scan_local_datasets(self) -> list[LocalDatasetRecord]:
         """Scan datasets_dir for local datasets."""
-        validation = self._storage.validate("datasets_dir", probe_writable=False)
-        if not validation.exists or not validation.path.is_dir():
-            return []
-
         records: list[LocalDatasetRecord] = []
-        root = validation.path
+        validation = self._storage.validate("datasets_dir", probe_writable=False)
+        if validation.exists and validation.path.is_dir():
+            root = validation.path
+            try:
+                for item in root.iterdir():
+                    rec = inspect_dataset_file(item)
+                    if rec is not None:
+                        records.append(rec)
+            except OSError as error:
+                logger.warning("Error reading datasets directory %s: %s", root, error)
 
-        try:
-            for item in root.iterdir():
-                rec = inspect_dataset_file(item)
-                if rec is not None:
-                    records.append(rec)
-        except OSError as error:
-            logger.warning("Error reading datasets directory %s: %s", root, error)
-
-        return sorted(records, key=lambda r: (not r.is_prepared, r.name.lower()))
+        records = sorted(records, key=lambda r: (not r.is_prepared, r.name.lower()))
+        if self._catalog is not None:
+            for record in records:
+                self._catalog.add_dataset(to_record_dict(record))
+            self._catalog.save()
+        return records
 
     def preview_dataset(self, path: Path | str, num_rows: int = 10) -> DatasetPreview:
         """Load the first few rows of a dataset and validate its structure."""

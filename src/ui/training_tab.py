@@ -27,7 +27,7 @@ from ui.components import Card, FieldRow, StoragePathRow
 from ui.engine_card import EngineCard
 from ui.storage_action import open_storage_path
 from ui.tab_page import TabPage
-from workers.job_manager import JobManager, JobSnapshot
+from workers.job_manager import JobManager, JobSnapshot, JobState
 from workers.protocol import MessageType, WorkerMessage
 from workers.worker_process import WorkerProcess
 
@@ -59,6 +59,8 @@ class TrainingTab(TabPage):
         self._active_worker: WorkerProcess | None = None
         self._active_job_id: str | None = None
         self._pending_completion: tuple[bool, str] | None = None
+        self._queued_jobs: dict[str, dict] = {}
+        self._queue_connected = False
 
         # --- Engine Status Card ---
         self.engine_card = EngineCard(
@@ -344,11 +346,9 @@ class TrainingTab(TabPage):
             )
             return
 
-        # Check interpreter
         unsloth_status = self._registry.status(UNSLOTH)
         interpreter = unsloth_status.interpreter
         if not interpreter or not interpreter.is_file():
-            # Fallback standard path
             fallback = Path("environments/unsloth/Scripts/python.exe").resolve()
             if fallback.is_file():
                 interpreter = fallback
@@ -367,40 +367,73 @@ class TrainingTab(TabPage):
             self._state.notify("error", f"Cannot start training: {error}")
             return
 
+        config_data = self._build_config(job.job_id, model_name, dataset_path)
+        if job.state is JobState.QUEUED:
+            self._queued_jobs[job.job_id] = {
+                "config": config_data,
+                "interpreter": interpreter,
+                "script": worker_script,
+            }
+            self._connect_queue_signal()
+            self.log_view.append(
+                f"[queue] Job {job.job_id} queued; it starts when the GPU is free."
+            )
+            self._state.notify("info", f"Training job {job.job_id} queued.")
+            return
+
+        self._launch_job(job.job_id, config_data, interpreter, worker_script)
+
+    def _build_config(self, job_id: str, model_name: str, dataset_path: str) -> dict:
+        outputs_dir = self._storage.path_for("outputs_dir") / f"unsloth_{job_id}"
+        outputs_dir.mkdir(parents=True, exist_ok=True)
         try:
-            self._active_job_id = job.job_id
+            lr_val = float(self.lr_edit.text().strip())
+        except ValueError:
+            lr_val = 2e-4
+        return {
+            "job_id": job_id,
+            "model_name": model_name,
+            "dataset_path": dataset_path,
+            "output_dir": str(outputs_dir),
+            "max_steps": self.steps_spin.value(),
+            "max_seq_length": self.seq_spin.value(),
+            "batch_size": self.batch_spin.value(),
+            "learning_rate": lr_val,
+            "lora_r": self.r_spin.value(),
+            "lora_alpha": self.alpha_spin.value(),
+        }
+
+    def _connect_queue_signal(self) -> None:
+        if self._queue_connected:
+            return
+        signal = getattr(self._job_manager, "job_start_requested", None)
+        if signal is not None and hasattr(signal, "connect"):
+            signal.connect(self._on_job_start_requested)
+            self._queue_connected = True
+
+    def _on_job_start_requested(self, snapshot: JobSnapshot) -> None:
+        if snapshot.state is not JobState.STARTING:
+            return
+        spec = self._queued_jobs.pop(snapshot.job_id, None)
+        if spec is None:
+            return
+        self.log_view.append(f"[queue] Job {snapshot.job_id} is starting now.")
+        self._launch_job(snapshot.job_id, spec["config"], spec["interpreter"], spec["script"])
+
+    def _launch_job(self, job_id: str, config_data: dict, interpreter, worker_script) -> None:
+        try:
+            self._active_job_id = job_id
             self._pending_completion = None
             self.start_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.progress_bar.setValue(0)
             self.log_view.clear()
-            advisory = self._compatibility_advisory(str(model_name))
+            advisory = self._compatibility_advisory(str(config_data["model_name"]))
             if advisory:
                 self.log_view.append(advisory)
                 self.start_button.setToolTip(advisory)
             self.step_label.setText("Step: 0")
             self.loss_label.setText("Loss: —")
-
-            outputs_dir = self._storage.path_for("outputs_dir") / f"unsloth_{job.job_id}"
-            outputs_dir.mkdir(parents=True, exist_ok=True)
-
-            try:
-                lr_val = float(self.lr_edit.text().strip())
-            except ValueError:
-                lr_val = 2e-4
-
-            config_data = {
-                "job_id": job.job_id,
-                "model_name": model_name,
-                "dataset_path": dataset_path,
-                "output_dir": str(outputs_dir),
-                "max_steps": self.steps_spin.value(),
-                "max_seq_length": self.seq_spin.value(),
-                "batch_size": self.batch_spin.value(),
-                "learning_rate": lr_val,
-                "lora_r": self.r_spin.value(),
-                "lora_alpha": self.alpha_spin.value(),
-            }
 
             scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
             scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -428,7 +461,7 @@ class TrainingTab(TabPage):
                     f"Training worker started but setup reported an error: {error}",
                 )
             else:
-                self._handle_setup_failure(job.job_id, error)
+                self._handle_setup_failure(job_id, error)
 
     def _handle_setup_failure(self, job_id: str, error: Exception) -> None:
         """Fail a job whose worker could not be prepared or started."""

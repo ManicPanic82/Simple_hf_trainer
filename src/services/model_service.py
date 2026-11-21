@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from services.credentials import CredentialStore
+from services.registry import Registry, to_record_dict
 from services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
@@ -230,9 +231,11 @@ class ModelService:
         self,
         storage: StorageService,
         credentials: CredentialStore | None = None,
+        catalog: Registry | None = None,
     ) -> None:
         self._storage = storage
         self._credentials = credentials
+        self._catalog = catalog
 
     def _get_token(self) -> str | None:
         if self._credentials and self._credentials.available:
@@ -273,7 +276,12 @@ class ModelService:
             except OSError as error:
                 logger.warning("Error reading %s: %s", root, error)
 
-        return sorted(records, key=lambda r: r.name.lower())
+        records = sorted(records, key=lambda r: r.name.lower())
+        if self._catalog is not None:
+            for record in records:
+                self._catalog.add_model(to_record_dict(record))
+            self._catalog.save()
+        return records
 
     def search_hub(self, query: str, limit: int = 20) -> list[HubModelRecord]:
         """Search Hugging Face Hub models."""

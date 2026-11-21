@@ -109,15 +109,16 @@ Engine environments live under `environments/` and are **never** committed.
 
 - The engine workflows have only been smoke-tested with small reference workloads; production
   runs, broad model-family coverage, large datasets and all export paths remain unverified.
-- The GPU job manager rejects a second engine job instead of queueing it.
+- The GPU job manager runs one engine job at a time and queues further jobs FIFO; queued jobs start automatically when the GPU is free.
 - VRAM assessments are rough indicators. Disk footprint is not GPU memory usage; actual
   requirements depend on quantization, context length, activations, offload settings and
   other GPU processes.
 - Cancellation is cooperative first. Unsloth stops at a training-step boundary and Heretic
   receives an interrupt; an unresponsive worker is terminated after a grace period.
-- No persistent model or dataset registry is maintained yet. Job history is also
-  session-only by design: settings, models and datasets are rediscovered after a restart,
-  but completed job records are not reconstructed.
+- Model and dataset libraries are catalogued in `registry.json`, and terminal job records
+  are kept in `jobs.json` under the app home. Both are best-effort local caches: a corrupt
+  file is ignored and the library is rebuilt by the next scan. In-flight job state is not
+  restored after a restart.
 - GPU monitoring uses `nvidia-smi`; without it the status strip reports *Unavailable*.
 
 

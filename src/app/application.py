@@ -16,6 +16,7 @@ from services.dataset_service import DatasetService
 from services.engine_registry import EngineRegistry
 from services.hardware_monitor import HardwareMonitor
 from services.model_service import ModelService
+from services.registry import Registry
 from services.settings_service import AppSettings, SettingsService
 from services.storage_service import StorageService
 from ui.main_window import APP_VERSION, MainWindow
@@ -35,6 +36,7 @@ class AppContext:
     state: AppState
     monitor: HardwareMonitor
     registry: EngineRegistry
+    catalog: Registry
     job_manager: JobManager
     credentials: CredentialStore
     model_service: ModelService
@@ -58,11 +60,13 @@ def build_context(
     settings_service: SettingsService | None = None,
     *,
     settings: AppSettings | None = None,
+    catalog: Registry | None = None,
     parent=None,
 ) -> AppContext:
     """Create services and wire the observable state.
 
-    ``settings`` bypasses loading from disk and is used by tests.
+    ``settings`` bypasses loading from disk and is used by tests. ``catalog``
+    may be supplied to use a different registry location (also used by tests).
     """
     service = settings_service or SettingsService()
     resolved = settings if settings is not None else service.load()
@@ -74,8 +78,9 @@ def build_context(
     jobs = JobManager(parent=parent)
 
     credentials = create_credential_store()
-    model_service = ModelService(storage, credentials)
-    dataset_service = DatasetService(storage, credentials)
+    model_catalog = catalog or Registry(paths.app_data_dir())
+    model_service = ModelService(storage, credentials, catalog=model_catalog)
+    dataset_service = DatasetService(storage, credentials, catalog=model_catalog)
 
     context = AppContext(
         settings_service=service,
@@ -84,6 +89,7 @@ def build_context(
         state=state,
         monitor=monitor,
         registry=registry,
+        catalog=model_catalog,
         job_manager=jobs,
         credentials=credentials,
         model_service=model_service,

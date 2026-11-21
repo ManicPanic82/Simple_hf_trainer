@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from workers.job_manager import (
-    GpuBusyError,
     GpuLock,
     JobManager,
     JobState,
@@ -31,15 +30,25 @@ def test_submit_grants_exclusive_gpu(qapp) -> None:
     assert manager.can_accept() is False
 
 
-def test_second_engine_is_rejected_with_explicit_reason(qapp) -> None:
+def test_second_engine_is_queued_while_gpu_is_busy(qapp) -> None:
     manager = JobManager()
     first = manager.submit("unsloth")
-    with pytest.raises(GpuBusyError) as caught:
-        manager.submit("heretic", "some/model")
-    assert caught.value.owner_job_id == first.job_id
-    assert caught.value.owner_engine == "unsloth"
-    assert caught.value.requested_engine == "heretic"
+    queued = manager.submit("heretic", "some/model")
+
+    assert queued.state is JobState.QUEUED
+    assert queued.model_ref == "some/model"
+    assert manager.snapshot(queued.job_id) is queued
     assert manager.gpu_owner == first.job_id
+    assert [job.job_id for job in manager.queued_jobs()] == [queued.job_id]
+
+    # Finishing the owner promotes the queued job and hands over the GPU.
+    manager.mark_succeeded(first.job_id)
+    started = manager.snapshot(queued.job_id)
+    assert started is not None
+    assert started.state is JobState.STARTING
+    assert manager.gpu_owner == queued.job_id
+    assert manager.queued_jobs() == []
+    assert manager.active_job() == started
 
 
 def test_success_releases_the_gpu(qapp) -> None:

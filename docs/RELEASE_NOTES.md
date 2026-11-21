@@ -24,18 +24,18 @@ GPU-exclusive job manager.
 
 Validation at this point:
 
-- **168 tests pass** and `ruff check` is clean (Windows, offscreen Qt; no test downloads models or datasets). Two pre-existing files are not Ruff-`format` clean.
+- **195 tests pass**; `ruff check` and `ruff format --check` are clean across `src` and `tests` (Windows, offscreen Qt; no test downloads models or datasets).
 - A real **Unsloth 5-step 4-bit LoRA training run** was validated end-to-end on the reference GTX 1660: Unsloth imported at 20.6 s, model loaded at 32.1 s, all 5 steps completed, adapter and tokenizer saved, `JOB_COMPLETE success=True`, zero protocol errors.
 - A real **Heretic abliteration run** was validated through the same QProcess launcher: 2 trials, refusal/KL metrics, merged model saved with 6 artifacts, `JOB_COMPLETE success=True`, zero protocol errors.
 - Both workers had the same Windows startup defect: a daemon stdin-cancellation listener blocked C-extension imports. The listener is now attached only after engine setup, immediately before the engine runs; regression tests guard the ordering. The Heretic worker also had a protocol-stream recursion defect (its interceptor re-emitted through the replaced `sys.stdout`), now fixed by capturing a private protocol stream.
 - Completed LoRA adapters and abliterated models are published to the Models library automatically; the Models tab subscribes to `models_changed`.
-- Dataset Hub download/import and honest per-file model-download progress with between-files cancellation were added. Compatibility checks are advisory only — unknown model/GPU combinations are never silently blocked.
+- Dataset Hub download/import, split/file selection for preview and preparation, and honest per-file model-download progress with between-files cancellation were added. Compatibility checks are advisory only — unknown model/GPU combinations are never silently blocked.
+- The GPU job manager now queues further engine requests FIFO and launches them automatically when the GPU is free. Discovered models/datasets are catalogued in `registry.json`, and terminal job records are retained in `jobs.json`; both are best-effort local caches rebuilt defensively after a corrupt file.
 
 ## Known limitations
 
-- **No job queue.** The GPU job manager owns a single lock and rejects a second engine job with `GpuBusyError`. There is no FIFO queue and no `JobState.QUEUED`; rejection is explicit and visible.
-- **No persistent registry.** `src/services/engine_registry.py` performs out-of-process engine *detection* only. Discovered models and datasets are not catalogued, and there is no `registry.json`.
-- **No persistent job history.** Job state is tracked in memory for the active lifecycle only; past jobs are not retained across restarts.
+- **One engine at a time.** The GPU job manager still enforces exclusivity: a second job is queued rather than run concurrently. Queue order is FIFO and there is no priority or preemption.
+- **Local caches are best-effort.** `registry.json` and `jobs.json` are local files, not a database; corrupt entries are ignored and the libraries are rebuilt by the next scan. In-flight job state is not restored after a restart.
 - **Cancellation during startup is limited.** To avoid the Windows import deadlock, the worker's stdin cancellation listener is attached after engine/model setup, immediately before training. Cancel requests issued during that startup/loading window are not observed by the worker until training begins; the process runner's grace-period termination is the backstop.
 - **No GUI click-through acceptance run.** Both engines were validated through the same `WorkerProcess` launcher the tabs use, and unattended CLI/headless runs are recorded in the compatibility report. Manual clicking through the four tabs (including normal close and active-job close) has not been performed in this session, and long-running workloads remain unverified.
 - **Engine evidence is smoke-test only.** Production runs, broad model-family and dataset-format coverage, and all export paths remain unverified; refer to `docs/COMPATIBILITY_REPORT.md` for the exact evidence levels.
