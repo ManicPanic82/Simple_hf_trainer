@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
+import threading
+import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -135,3 +138,102 @@ def test_sft_config_reports_unsupported_sequence_length_signature():
 
     with pytest.raises(RuntimeError, match="Unable to construct installed TRL SFTConfig"):
         create_sft_config(UnsupportedConfig, {"output_dir": "out"}, 128)
+
+
+def test_unsloth_cancel_listener_starts_after_engine_import(monkeypatch, tmp_path):
+    """The stdin reader must not be active while Unsloth's C extensions load.
+
+    On Windows a daemon thread blocked reading an open QProcess stdin pipe
+    deadlocks the numpy/torch imports performed by ``import unsloth``. The
+    listener is therefore deferred until after engine/model setup and only
+    attached immediately before training, where cancellation is meaningful.
+    """
+    import workers.unsloth_worker as worker_module
+
+    events: list[str] = []
+    emitted: list[str] = []
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
+
+    class FakeUnsloth(types.ModuleType):
+        def __getattr__(self, name: str):
+            if name == "FastLanguageModel":
+                events.append("engine_import")
+                return FakeFastLanguageModel
+            raise AttributeError(name)
+
+    class FakeModel:
+        def save_pretrained(self, path):  # pragma: no cover - stub
+            pass
+
+    class FakeTokenizer:
+        def save_pretrained(self, path):  # pragma: no cover - stub
+            pass
+
+    class FakeFastLanguageModel:
+        @staticmethod
+        def from_pretrained(**kwargs):
+            return FakeModel(), FakeTokenizer()
+
+        @staticmethod
+        def get_peft_model(model, **kwargs):
+            return model
+
+    class FakeSFTConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    class FakeSFTTrainer:
+        state = types.SimpleNamespace(global_step=1)
+
+        def __init__(self, **kwargs):
+            pass
+
+        def train(self):  # pragma: no cover - called by the worker
+            events.append("train")
+            return types.SimpleNamespace(training_loss=0.5)
+
+    monkeypatch.setitem(sys.modules, "unsloth", FakeUnsloth("unsloth"))
+    # The app venv intentionally has no transformers; datasets still probes for
+    # PreTrainedTokenizerBase when fingerprinting, so provide both attributes.
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.TrainerCallback = type("TrainerCallback", (), {})
+    fake_transformers.PreTrainedTokenizerBase = type("PreTrainedTokenizerBase", (), {})
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    monkeypatch.setitem(
+        sys.modules,
+        "trl",
+        types.SimpleNamespace(SFTConfig=FakeSFTConfig, SFTTrainer=FakeSFTTrainer),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "emit",
+        lambda msg_type, *args, **kwargs: emitted.append(msg_type),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "start_cancel_listener",
+        lambda job_id: events.append("listener") or threading.Event(),
+    )
+
+    cfg = {
+        "job_id": "test-listener-order",
+        "model_name": "fake-model",
+        "dataset_path": str(dataset),
+        "output_dir": str(tmp_path / "out"),
+        "max_steps": 1,
+    }
+    real_stdout = sys.stdout
+    try:
+        rc = worker_module.run_worker(cfg)
+    finally:
+        # run_worker routes engine stdout chatter to stderr; restore pytest's
+        # capture stream so the rest of the suite is unaffected.
+        sys.stdout = real_stdout
+
+    assert rc == 0
+    assert "engine_import" in events
+    assert "listener" in events
+    assert "train" in events
+    assert events.index("engine_import") < events.index("listener") < events.index("train")
+    assert {"hello", "ready", "job_complete"}.issubset(set(emitted))
