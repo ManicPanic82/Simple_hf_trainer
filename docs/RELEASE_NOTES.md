@@ -31,6 +31,7 @@ Validation at this point:
 - Completed LoRA adapters and abliterated models are published to the Models library automatically; the Models tab subscribes to `models_changed`.
 - Dataset Hub download/import, split/file selection for preview and preparation, and honest per-file model-download progress with between-files cancellation were added. Compatibility checks are advisory only — unknown model/GPU combinations are never silently blocked.
 - The GPU job manager now queues further engine requests FIFO and launches them automatically when the GPU is free. Discovered models/datasets are catalogued in `registry.json`, and terminal job records are retained in `jobs.json`; both are best-effort local caches rebuilt defensively after a corrupt file.
+- Training can export a merged fp16 checkpoint (default) with the LoRA weights folded in, so the result is discovered as a base model and can be selected as the starting point for continued training. Adapter-only export remains available.
 
 ## Known limitations
 
