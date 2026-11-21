@@ -188,48 +188,12 @@ class ConsoleWidget(QWidget):
 
         session = self._current or self.start_session("Output")
 
-        lines = message.splitlines()
-        for i, line in enumerate(lines):
-            # Add special formatting for session headers
-            if "Session" in line:
-                # Add spacing before session header (if there's a previous line with "Session" text)
-                if i > 0 and "Session" in lines[i - 1]:
-                    self._record(
-                        session,
-                        LogEntry(
-                            timestamp or datetime.now(),
-                            "info",
-                            "=== " + lines[i - 1].strip() + " ===",
-                            source,
-                            session.index,
-                        ),
-                    )
-
-            # Add spacing after session headers
-            if "Session" in line:
-                self._record(
-                    session,
-                    LogEntry(
-                        timestamp or datetime.now(),
-                        "info",
-                        "----------------------------------------",
-                        source,
-                        session.index,
-                    ),
-                )
-
-            # Add all lines to the log
-            for line in lines:
-                self._record(
-                    session,
-                    LogEntry(
-                        timestamp or datetime.now(),
-                        level,
-                        line,
-                        source,
-                        session.index,
-                    ),
-                )
+        stamp = timestamp or datetime.now()
+        for line in message.splitlines():
+            self._record(
+                session,
+                LogEntry(stamp, level, line, source, session.index),
+            )
 
     def append_many(self, entries: list[tuple[str, str, str | None]]) -> None:
         """Append ``(text, level, source)`` triples in one call."""
@@ -304,7 +268,7 @@ class ConsoleWidget(QWidget):
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         lines = [
-            "# Simple HF Trainer — Heretic console log",
+            "# Simple HF Trainer — engine console log",
             f"# Saved: {datetime.now().isoformat(timespec='seconds')}",
             f"# Sessions: {len(self._sessions)}",
             "",
@@ -325,10 +289,10 @@ class ConsoleWidget(QWidget):
 
     def save_log(self, parent: QWidget | None = None) -> Path | None:
         """Ask for a destination and save the complete history."""
-        default_name = f"heretic-console-{datetime.now():%Y%m%d-%H%M%S}.log"
+        default_name = f"engine-console-{datetime.now():%Y%m%d-%H%M%S}.log"
         path, _ = QFileDialog.getSaveFileName(
             parent or self,
-            "Save Heretic console log",
+            "Save engine console log",
             default_name,
             "Log files (*.log *.txt);;All files (*.*)",
         )

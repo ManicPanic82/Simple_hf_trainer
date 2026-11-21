@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSpinBox,
-    QTextEdit,
     QWidget,
 )
 
@@ -24,6 +23,7 @@ from services.engine_registry import UNSLOTH, EngineRegistry, EngineStatus
 from services.model_service import LocalModelRecord, ModelService
 from services.storage_service import Severity, StorageService
 from ui.components import Card, FieldRow, StoragePathRow
+from ui.console import ConsoleWidget
 from ui.engine_card import EngineCard
 from ui.storage_action import open_storage_path
 from ui.tab_page import TabPage
@@ -188,17 +188,11 @@ class TrainingTab(TabPage):
         btn_row.addStretch(1)
         control.add_layout(btn_row)
 
-        log_label = QLabel("Live Engine Log", control)
+        log_label = QLabel("Training Console", control)
         log_label.setObjectName("SectionLabel")
         control.add(log_label)
-
-        self.log_view = QTextEdit(control)
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(140)
-        self.log_view.setStyleSheet(
-            "font-family: 'Cascadia Mono', Consolas, monospace; font-size: 8.5pt;"
-        )
-        control.add(self.log_view)
+        self.console = ConsoleWidget(parent=control)
+        control.add(self.console)
 
         self.add(control)
 
@@ -388,7 +382,7 @@ class TrainingTab(TabPage):
                 "script": worker_script,
             }
             self._connect_queue_signal()
-            self.log_view.append(
+            self.console.append(
                 f"[queue] Job {job.job_id} queued; it starts when the GPU is free."
             )
             self._state.notify("info", f"Training job {job.job_id} queued.")
@@ -431,7 +425,7 @@ class TrainingTab(TabPage):
         spec = self._queued_jobs.pop(snapshot.job_id, None)
         if spec is None:
             return
-        self.log_view.append(f"[queue] Job {snapshot.job_id} is starting now.")
+        self.console.append(f"[queue] Job {snapshot.job_id} is starting now.")
         self._launch_job(snapshot.job_id, spec["config"], spec["interpreter"], spec["script"])
 
     def _launch_job(self, job_id: str, config_data: dict, interpreter, worker_script) -> None:
@@ -441,10 +435,10 @@ class TrainingTab(TabPage):
             self.start_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.progress_bar.setValue(0)
-            self.log_view.clear()
+            self.console.start_session("Unsloth training", model_name)
             advisory = self._compatibility_advisory(str(config_data["model_name"]))
             if advisory:
-                self.log_view.append(advisory)
+                self.console.append(advisory)
                 self.start_button.setToolTip(advisory)
             self.step_label.setText("Step: 0")
             self.loss_label.setText("Loss: —")
@@ -526,17 +520,17 @@ class TrainingTab(TabPage):
         if msg.type is MessageType.HELLO:
             pid = payload.get("pid")
             detail = f" (PID {pid})" if pid else ""
-            self.log_view.append(f"[worker] Started{detail}.")
+            self.console.append(f"[worker] Started{detail}.")
 
         elif msg.type is MessageType.READY:
             engine = payload.get("engine", "training engine")
             version = payload.get("version")
             detail = f" {version}" if version else ""
-            self.log_view.append(f"[worker] {engine} ready{detail}.")
+            self.console.append(f"[worker] {engine} ready{detail}.")
 
         elif msg.type is MessageType.ERROR:
             message = str(payload.get("message") or "Unknown worker error.")
-            self.log_view.append(f"[engine error] {message}")
+            self.console.append(f"[engine error] {message}")
 
         elif msg.type is MessageType.PROGRESS:
             frac = float(payload.get("fraction", 0.0))
@@ -554,7 +548,7 @@ class TrainingTab(TabPage):
 
         elif msg.type is MessageType.LOG:
             line = payload.get("message", "")
-            self.log_view.append(str(line))
+            self.console.append(str(line))
 
         elif msg.type is MessageType.RESULT:
             out_dir = payload.get("output_dir", "")
@@ -575,10 +569,10 @@ class TrainingTab(TabPage):
     def _on_worker_log_line(self, line: str) -> None:
         line = str(line).strip()
         if line:
-            self.log_view.append(f"[engine stderr] {line}")
+            self.console.append(f"[engine stderr] {line}")
 
     def _on_worker_protocol_error(self, error: object) -> None:
-        self.log_view.append(f"[protocol warning] {error}")
+        self.console.append(f"[protocol warning] {error}")
 
     def _on_worker_exited(self, exit_code: int) -> None:
         if self._active_job_id:
@@ -589,14 +583,14 @@ class TrainingTab(TabPage):
             if snapshot is not None and snapshot.state.value == "cancelling":
                 failed_job = self._job_manager.handle_worker_exit(job_id, exit_code)
                 if failed_job is not None:
-                    self.log_view.append(
+                    self.console.append(
                         f"[worker exit] Job {job_id} finished after cancellation "
                         f"(exit code {exit_code}): {failed_job.message or failed_job.state.value}"
                     )
 
             elif completion is not None and completion[0] and exit_code == 0:
                 self._job_manager.mark_succeeded(job_id, message=completion[1])
-                self.log_view.append(f"[worker exit] {completion[1]}")
+                self.console.append(f"[worker exit] {completion[1]}")
                 self._state.publish_models(self._model_service.scan_local_models())
                 self._state.notify("info", "LoRA fine-tuning completed successfully!")
 
@@ -606,14 +600,14 @@ class TrainingTab(TabPage):
                     message=completion[1],
                     exit_code=exit_code,
                 )
-                self.log_view.append(f"[worker exit] {completion[1]} (exit code {exit_code})")
+                self.console.append(f"[worker exit] {completion[1]} (exit code {exit_code})")
 
             else:
                 failed_job = self._job_manager.handle_worker_exit(job_id, exit_code)
                 if failed_job is not None and failed_job.state.value == "failed":
-                    self.log_view.append(f"[worker exit] {failed_job.message}")
+                    self.console.append(f"[worker exit] {failed_job.message}")
                 elif failed_job is not None:
-                    self.log_view.append(
+                    self.console.append(
                         f"[worker exit] Job finished with state "
                         f"{failed_job.state.value} (exit code {exit_code})."
                     )

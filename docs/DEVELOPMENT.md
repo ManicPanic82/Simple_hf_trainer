@@ -33,6 +33,7 @@ src/workers/
     job_manager.py            GPU-exclusive lock and job lifecycle
 src/ui/
     main_window.py            header, four tabs, notice banner, status strip
+    console.py                timestamped, bounded live worker consoles with retained history
     models_tab.py datasets_tab.py training_tab.py heretic_tab.py
     tab_page.py components.py engine_card.py status_strip.py theme.py
     settings_dialog.py storage_action.py
@@ -107,8 +108,9 @@ Rules enforced by `workers/protocol.py`:
 
 `workers/job_manager.py` owns a single `GpuLock`.
 
-- `submit(engine)` acquires the lock or raises `GpuBusyError` naming the current owner. There
-  is no queue yet; rejection is explicit and visible.
+- `submit(engine)` acquires the lock or queues the job FIFO when another engine owns the GPU.
+  The queue is visible to the tabs and the next job is launched only after the previous
+  worker process exits and ownership is released.
 - `request_cancel(job_id)` moves the job to `cancelling` but **keeps** the lock until the
   worker process has actually exited.
 - The GUI sends a protocol cancellation request asynchronously. Unsloth stops at the next
@@ -117,7 +119,10 @@ Rules enforced by `workers/protocol.py`:
   kills it after a further 2 seconds. The GUI thread never waits synchronously for this path.
 - The UI records `job_complete` as a pending result and only releases the GPU lock after the
   process-exited signal. A process that exits without a completion message is a failure.
-- `mark_succeeded` / `mark_failed` / `mark_cancelled` release the lock.
+- `mark_succeeded` / `mark_failed` / `mark_cancelled` record terminal state and release the lock.
+- Terminal snapshots are persisted, bounded by the configured history limit, to the per-user
+  `jobs.json`. On restart, `history()` restores terminal summaries only; active jobs, process
+  handles, queues and GPU ownership are never restored.
 - `handle_worker_exit(job_id, exit_code)` reconciles reality: cancellation wins, a non-zero
   exit is a failure, and exit code 0 **without** a completion message is also a failure
   ("exited without reporting completion"). It is safe to call twice and for unknown jobs.

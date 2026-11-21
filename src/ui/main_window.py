@@ -1,4 +1,4 @@
-"""Main application window: header, five workflow tabs, and shared status strip."""
+"""Main application window: header, four workflow tabs, and shared status strip."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
 
 from app.state import Notice
 from services.engine_registry import EngineState, EngineStatus
-from ui.analytics_tab import AnalyticsTab
 from ui.components import Pill
 from ui.datasets_tab import DatasetsTab
 from ui.heretic_tab import HereticTab
@@ -75,9 +74,9 @@ class NoticeBanner(QFrame):
 
 
 class MainWindow(QMainWindow):
-    """The single application window. Five tabs, in fixed order."""
+    """The single application window. Four tabs, in fixed order."""
 
-    TAB_NAMES = ("Models", "Datasets", "Training", "Analytics", "Heretic")
+    TAB_NAMES = ("Models", "Datasets", "Training", "Heretic")
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -172,16 +171,6 @@ class MainWindow(QMainWindow):
             self.context.model_service,
             self.context.dataset_service,
         )
-        # Analytics tab (fifth tab)
-        self.analytics_tab = AnalyticsTab(
-            self.state,
-            self.context.storage,
-            self.context.job_manager,
-            None,  # metrics_service not yet implemented in AppContext
-            self.context.registry,
-            self.context.model_service,
-            self.context.dataset_service,
-        )
         self.heretic_tab = HereticTab(
             self.state,
             self.context.storage,
@@ -196,7 +185,6 @@ class MainWindow(QMainWindow):
                 self.models_tab,
                 self.datasets_tab,
                 self.training_tab,
-                self.analytics_tab,
                 self.heretic_tab,
             ),
             self.TAB_NAMES,
@@ -224,15 +212,18 @@ class MainWindow(QMainWindow):
         self.datasets_tab.use_dataset_in_training.connect(self._on_use_dataset_in_training)
 
     def _on_use_model_in_training(self, model_ref: str) -> None:
-        """Navigate to Analytics tab for training monitoring."""
+        """Select a model and open the Training workspace."""
         self.training_tab.select_model(model_ref)
-        # Analytics tab (index 3) is dedicated for training metrics and monitoring
-        self.tabs.setCurrentIndex(3)
+        self.tabs.setCurrentIndex(2)
 
     def _on_use_dataset_in_training(self, dataset_path: str) -> None:
-        """Navigate to Analytics tab for dataset analysis."""
+        """Select a dataset and open the Training workspace."""
         self.training_tab.select_dataset(dataset_path)
-        # Analytics tab (index 3) is dedicated for training metrics and monitoring
+        self.tabs.setCurrentIndex(2)
+
+    def _on_use_model_in_heretic(self, model_ref: str) -> None:
+        """Select a model and open the Heretic workspace."""
+        self.heretic_tab.select_model(model_ref)
         self.tabs.setCurrentIndex(3)
 
     # -- lifecycle -------------------------------------------------------
@@ -279,7 +270,6 @@ class MainWindow(QMainWindow):
             self.heretic_tab,
             self.models_tab,
             self.datasets_tab,
-            self.analytics_tab,
         ):
             request_shutdown = getattr(tab, "request_shutdown", None)
             if callable(request_shutdown):
@@ -323,7 +313,6 @@ class MainWindow(QMainWindow):
             self.heretic_tab,
             self.models_tab,
             self.datasets_tab,
-            self.analytics_tab,
         ):
             self._force_stop_worker(tab)
             request_shutdown = getattr(tab, "request_shutdown", None)
@@ -409,7 +398,6 @@ class MainWindow(QMainWindow):
             self.models_tab,
             self.datasets_tab,
             self.training_tab,
-            self.analytics_tab,
             self.heretic_tab,
         ):
             tab.refresh()

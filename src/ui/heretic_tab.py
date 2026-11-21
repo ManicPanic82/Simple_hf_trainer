@@ -44,6 +44,7 @@ from services.heretic_config import (
 from services.model_service import LocalModelRecord, ModelService
 from services.storage_service import Severity, StorageService
 from ui.components import Card, FieldRow, StoragePathRow
+from ui.console import ConsoleWidget
 from ui.engine_card import EngineCard
 from ui.storage_action import open_storage_path
 from ui.tab_page import TabPage
@@ -209,16 +210,11 @@ class HereticTab(TabPage):
         btn_row.addStretch(1)
         control.add_layout(btn_row)
 
-        log_label = QLabel("Live Engine Log", control)
+        log_label = QLabel("Engine Console", control)
         log_label.setObjectName("SectionLabel")
         control.add(log_label)
-        self.log_view = QTextEdit(control)
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(140)
-        self.log_view.setStyleSheet(
-            "font-family: 'Cascadia Mono', Consolas, monospace; font-size: 8.5pt;"
-        )
-        control.add(self.log_view)
+        self.console = ConsoleWidget(parent=control)
+        control.add(self.console)
         self.last_model_row = FieldRow("Saved model", "None saved yet", caption_width=104)
         control.add(self.last_model_row)
         self.add(control)
@@ -1000,7 +996,7 @@ class HereticTab(TabPage):
                 "script": worker_script,
             }
             self._connect_queue_signal()
-            self.log_view.append(
+            self.console.append(
                 f"[queue] Job {job.job_id} queued; it starts when the GPU is free."
             )
             self._state.notify("info", f"Heretic job {job.job_id} queued.")
@@ -1056,7 +1052,7 @@ class HereticTab(TabPage):
         spec = self._queued_jobs.pop(snapshot.job_id, None)
         if spec is None:
             return
-        self.log_view.append(f"[queue] Job {snapshot.job_id} is starting now.")
+        self.console.append(f"[queue] Job {snapshot.job_id} is starting now.")
         self._launch_job(snapshot.job_id, spec["config"], spec["interpreter"], spec["script"])
 
     def _launch_job(self, job_id: str, config_data: dict, interpreter, worker_script) -> None:
@@ -1066,7 +1062,7 @@ class HereticTab(TabPage):
             self.run_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.progress_bar.setValue(0)
-            self.log_view.clear()
+            self.console.start_session("Heretic modification", model_name)
             self.trial_metric_label.setText("Trial: 0")
             self.refusal_metric_label.setText("Refusal: —")
             self.kl_metric_label.setText("KL Div: —")
@@ -1147,27 +1143,27 @@ class HereticTab(TabPage):
     def _on_worker_log_line(self, line: str) -> None:
         line = str(line).strip()
         if line:
-            self.log_view.append(f"[engine stderr] {line}")
+            self.console.append(f"[engine stderr] {line}")
 
     def _on_worker_protocol_error(self, error: object) -> None:
-        self.log_view.append(f"[protocol warning] {error}")
+        self.console.append(f"[protocol warning] {error}")
 
     def _on_worker_message(self, msg: WorkerMessage) -> None:
         payload = msg.payload
         if msg.type is MessageType.HELLO:
             pid = payload.get("pid")
             detail = f" (PID {pid})" if pid else ""
-            self.log_view.append(f"[worker] Started{detail}.")
+            self.console.append(f"[worker] Started{detail}.")
 
         elif msg.type is MessageType.READY:
             engine = payload.get("engine", "Heretic engine")
             version = payload.get("version")
             detail = f" {version}" if version else ""
-            self.log_view.append(f"[worker] {engine} ready{detail}.")
+            self.console.append(f"[worker] {engine} ready{detail}.")
 
         elif msg.type is MessageType.ERROR:
             message = str(payload.get("message") or "Unknown worker error.")
-            self.log_view.append(f"[engine error] {message}")
+            self.console.append(f"[engine error] {message}")
 
         elif msg.type is MessageType.PROGRESS:
             frac = float(payload.get("fraction", 0.0))
@@ -1190,7 +1186,7 @@ class HereticTab(TabPage):
                 self.extra_metric_label.setText(f"{name}: {float(val):.4f}")
 
         elif msg.type is MessageType.LOG:
-            self.log_view.append(str(payload.get("message", "")))
+            self.console.append(str(payload.get("message", "")))
 
         elif msg.type is MessageType.RESULT:
             out_dir = payload.get("output_dir", "")

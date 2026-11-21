@@ -58,21 +58,25 @@ def test_settings_models_and_datasets_survive_a_fresh_start(tmp_path: Path, qapp
     )
 
 
-def test_job_history_is_session_only_by_design(qapp, tmp_path: Path) -> None:
-    """Decision: job history is intentionally in-memory, not persisted.
-
-    Settings and libraries are re-discovered after restart; job records are not
-    reconstructed. This is recorded in README.md known limitations.
-    """
-    manager = JobManager()
+def test_job_history_persists_but_active_session_is_not_restored(
+    qapp, tmp_path: Path
+) -> None:
+    """Terminal history survives restart; active worker state never does."""
+    history_file = tmp_path / "jobs.json"
+    manager = JobManager(history_file=history_file)
+    assert manager.history() == []
     assert list(manager.terminal_jobs()) == []
     assert manager.snapshot("any-old-job") is None
 
     job = manager.submit("unsloth", model_ref="a-model")
-    manager.mark_succeeded(job.job_id, message="done")
+    manager.mark_succeeded(job.job_id, message="adapter saved")
     assert len(list(manager.terminal_jobs())) == 1
+    assert [record.job_id for record in manager.history()] == [job.job_id]
 
-    # A new application start creates a new manager with no history.
-    fresh = JobManager()
+    # A fresh manager reloads only the persisted terminal summary.
+    fresh = JobManager(history_file=history_file)
+    assert [record.job_id for record in fresh.history()] == [job.job_id]
+    assert fresh.history()[0].message == "adapter saved"
     assert list(fresh.terminal_jobs()) == []
     assert fresh.snapshot(job.job_id) is None
+    assert fresh.gpu_owner is None
