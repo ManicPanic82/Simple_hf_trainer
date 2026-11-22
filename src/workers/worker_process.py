@@ -200,8 +200,15 @@ class WorkerProcess(QObject):
         lines, remainder = split_complete_lines(self._stderr_buffer, chunk)
         self._stderr_buffer = remainder
         for line in lines:
-            if line.strip():
-                self.log_line.emit(line)
+            if not line.strip():
+                continue
+            if len(line.encode("utf-8")) > MAX_BUFFERED_BYTES:
+                self.log_line.emit(
+                    "[stderr] output line exceeded "
+                    f"{MAX_BUFFERED_BYTES} bytes; line discarded."
+                )
+                continue
+            self.log_line.emit(line)
         if len(self._stderr_buffer) > MAX_BUFFERED_BYTES:
             self.log_line.emit(
                 "[stderr] unterminated output line exceeded "
