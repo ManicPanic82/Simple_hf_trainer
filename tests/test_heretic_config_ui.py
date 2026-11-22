@@ -152,3 +152,45 @@ def test_trial_selection_dialog_defaults_to_recommended_trial(qapp) -> None:
     )
 
     assert dialog.selected_trial() == 1
+
+
+def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
+    qapp, tmp_path: Path, monkeypatch
+) -> None:
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import QTimer
+
+    from services.engine_registry import HERETIC
+    from workers.job_manager import JobState
+
+    tab = _tab(tmp_path)
+    tab._active_job_id = "heretic-1"
+    tab._pending_completion = (True, "initial run complete")
+    tab._trial_ranked_results = lambda limit=3: ([{"trial": 1}, {"trial": 2}], 1)
+    tab._show_trial_selection_dialog = lambda results, recommended_index: 2
+    tab._verify_output = lambda: []
+    tab._config.model = "org/model"
+
+    queued = SimpleNamespace(job_id="heretic-2", state=JobState.STARTING)
+    tab._job_manager.submit.return_value = queued
+    tab._build_config = MagicMock(return_value={"job_id": "heretic-2"})
+    tab._launch_job = MagicMock()
+    scheduled: list[object] = []
+    monkeypatch.setattr(QTimer, "singleShot", lambda delay, callback: scheduled.append(callback))
+
+    tab._on_worker_exited(0)
+
+    tab._job_manager.mark_succeeded.assert_called_once_with(
+        "heretic-1", message="Completed; selected trial queued to re-run."
+    )
+    tab._job_manager.submit.assert_called_once_with(HERETIC, model_ref="org/model")
+    tab._build_config.assert_called_once_with(
+        "heretic-2", "org/model", None, trial_index=1
+    )
+    assert tab._active_job_id is None
+    assert len(scheduled) == 1
+    scheduled[0]()
+    tab._launch_job.assert_called_once_with(
+        "heretic-2", {"job_id": "heretic-2"}, None, tab._launch_job.call_args.args[3]
+    )
