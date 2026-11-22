@@ -2366,51 +2366,66 @@ class HereticTab(TabPage):
                                         notify=False,
                                     )
                                 else:
-                                    # Release the completed run's GPU ownership before
-                                    # submitting the selected-trial run.
-                                    self._job_manager.mark_succeeded(
-                                        job_id, message="Completed; selected trial queued to re-run."
-                                    )
-                                    selected_config.trial_index = selected - 1
-                                    rerun = self._job_manager.submit(
-                                        HERETIC, model_ref=selected_config.model
-                                    )
-                                    rerun_config = self._build_config(
-                                        rerun.job_id,
-                                        selected_config.model,
-                                        None,
-                                        trial_index=selected_config.trial_index,
-                                    )
-                                    worker_script = (
-                                        Path(__file__).resolve().parents[1]
-                                        / "workers"
-                                        / "heretic_worker.py"
-                                    )
-                                    if rerun.state is JobState.QUEUED:
-                                        self._queued_jobs[rerun.job_id] = {
-                                            "config": rerun_config,
-                                            "interpreter": None,
-                                            "script": worker_script,
-                                        }
-                                        self._connect_queue_signal()
-                                        self.console.append(
-                                            f"Selected trial re-run {rerun.job_id} queued; "
-                                            "it starts when the GPU is free.",
-                                            level="system",
-                                            source="queue",
+                                    engine_status = self._registry.status(HERETIC)
+                                    interpreter = engine_status.interpreter
+                                    if interpreter is None or not interpreter.is_file():
+                                        self._job_manager.mark_succeeded(
+                                            job_id, message=completion[1]
                                         )
-                                        self._set_worker_pill("Worker · queued", "info")
+                                        self._fail_start(
+                                            "Cannot re-run selected trial: Heretic interpreter "
+                                            "is no longer available.",
+                                            notify=False,
+                                        )
                                     else:
-                                        # The current worker's exit handler still has cleanup
-                                        # to perform. Start the next process on the next event
-                                        # loop turn so that cleanup cannot clear its state.
-                                        QTimer.singleShot(
-                                            0,
-                                            lambda job_id=rerun.job_id, config=rerun_config,
-                                            script=worker_script: self._launch_job(
-                                                job_id, config, None, script
-                                            ),
+                                        # Release the completed run's GPU ownership before
+                                        # submitting the selected-trial run.
+                                        self._job_manager.mark_succeeded(
+                                            job_id,
+                                            message="Completed; selected trial queued to re-run.",
                                         )
+                                        selected_config.trial_index = selected - 1
+                                        rerun = self._job_manager.submit(
+                                            HERETIC, model_ref=selected_config.model
+                                        )
+                                        rerun_config = self._build_config(
+                                            rerun.job_id,
+                                            selected_config.model,
+                                            interpreter,
+                                            trial_index=selected_config.trial_index,
+                                        )
+                                        worker_script = (
+                                            Path(__file__).resolve().parents[1]
+                                            / "workers"
+                                            / "heretic_worker.py"
+                                        )
+                                        if rerun.state is JobState.QUEUED:
+                                            self._queued_jobs[rerun.job_id] = {
+                                                "config": rerun_config,
+                                                "interpreter": interpreter,
+                                                "script": worker_script,
+                                            }
+                                            self._connect_queue_signal()
+                                            self.console.append(
+                                                f"Selected trial re-run {rerun.job_id} queued; "
+                                                "it starts when the GPU is free.",
+                                                level="system",
+                                                source="queue",
+                                            )
+                                            self._set_worker_pill("Worker · queued", "info")
+                                        else:
+                                            # The current worker's exit handler still has cleanup
+                                            # to perform. Start the next process on the next event
+                                            # loop turn so that cleanup cannot clear its state.
+                                            QTimer.singleShot(
+                                                0,
+                                                lambda job_id=rerun.job_id,
+                                                config=rerun_config,
+                                                script=worker_script,
+                                                python=interpreter: self._launch_job(
+                                                    job_id, config, python, script
+                                                ),
+                                            )
                     else:
                         self._job_manager.mark_succeeded(job_id, message=completion[1])
                         self._set_worker_pill("Worker · completed", "ok")
