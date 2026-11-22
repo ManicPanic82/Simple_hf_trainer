@@ -130,6 +130,7 @@ def test_stderr_partial_lines_are_reassembled(qapp, wait_for) -> None:
     finally:
         worker.stop()
 
+
 def test_unterminated_stderr_line_is_bounded(qapp, wait_for, tmp_path: Path) -> None:
     script = tmp_path / "stderr_flood.py"
     script.write_text(
