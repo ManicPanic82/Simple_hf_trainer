@@ -8,9 +8,9 @@ from ui.main_window import MainWindow
 def test_main_window_starts_with_exactly_four_workflow_tabs(context) -> None:
     window = MainWindow(context)
     try:
-        assert window.tab_names() == ["Models", "Datasets", "Training", "Heretic"]
-        assert window.tabs.count() == 4
-        assert not hasattr(window, "analytics_tab")
+        assert window.tab_names() == ["Models", "Datasets", "Training", "Heretic", "Analytics"]
+        assert window.tabs.count() == 5
+        assert hasattr(window, "analytics_tab")
     finally:
         window.close()
 

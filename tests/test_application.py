@@ -19,9 +19,9 @@ def window(context):
     window.deleteLater()
 
 
-def test_main_window_has_exactly_four_tabs_in_order(window: MainWindow) -> None:
-    assert window.tabs.count() == 4
-    assert window.tab_names() == ["Models", "Datasets", "Training", "Heretic"]
+def test_main_window_has_exactly_five_tabs_in_order(window: MainWindow) -> None:
+    assert window.tabs.count() == 5
+    assert window.tab_names() == ["Models", "Datasets", "Training", "Heretic", "Analytics"]
 
 
 def test_tabs_are_navigable(window: MainWindow) -> None:

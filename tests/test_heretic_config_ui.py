@@ -6,8 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from services.credentials import MemoryCredentialStore
-from services.heretic_config import HereticConfig
+from services.heretic_config import HereticConfig, HereticConfigError
 from ui.heretic_tab import HereticTab
 
 
@@ -97,3 +99,32 @@ def test_validation_blocks_a_run_without_objectives(qapp, tmp_path: Path) -> Non
     tab._start_heretic()
     problems = tab.toml_status.text()
     assert "at least one scorer" in problems
+
+
+def test_device_map_table_is_editable_in_the_form(qapp, tmp_path: Path) -> None:
+    tab = _tab(tmp_path)
+    tab.device_map_edit.setText('{"0": 0, "cpu": "disk"}')
+
+    cfg = tab.config_from_form()
+    assert cfg.device_map == {"0": 0, "cpu": "disk"}
+    assert HereticConfig.from_toml(cfg.to_toml()).device_map == {
+        "0": 0,
+        "cpu": "disk",
+    }
+
+    # Round-tripping through the form must preserve the table.
+    tab.apply_config_to_form(cfg)
+    assert tab.device_map_edit.text() == '{"0": 0, "cpu": "disk"}'
+
+    tab.device_map_edit.setText('{"0": }')
+    with pytest.raises(HereticConfigError):
+        tab.config_from_form()
+
+
+def test_profile_origin_distinguishes_upstream_and_bundled(qapp, tmp_path: Path) -> None:
+    tab = _tab(tmp_path)
+    tab.preset_combo.setCurrentIndex(tab.preset_combo.findData("noslop"))
+    assert "Upstream Heretic preset" in tab.profile_origin_label.text()
+
+    tab.preset_combo.setCurrentIndex(tab.preset_combo.findData("compact"))
+    assert "Built-in low-VRAM profile" in tab.profile_origin_label.text()

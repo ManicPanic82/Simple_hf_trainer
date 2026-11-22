@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
 
 from app.state import Notice
 from services.engine_registry import EngineState, EngineStatus
+from services.metrics_service import MetricsService
+from ui.analytics_tab import AnalyticsTab
 from ui.components import Pill
 from ui.datasets_tab import DatasetsTab
 from ui.heretic_tab import HereticTab
@@ -76,7 +78,7 @@ class NoticeBanner(QFrame):
 class MainWindow(QMainWindow):
     """The single application window. Four tabs, in fixed order."""
 
-    TAB_NAMES = ("Models", "Datasets", "Training", "Heretic")
+    TAB_NAMES = ("Models", "Datasets", "Training", "Heretic", "Analytics")
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -153,6 +155,8 @@ class MainWindow(QMainWindow):
         self.tabs.setObjectName("MainTabs")
         self.tabs.setDocumentMode(True)
 
+        self.metrics_service = MetricsService(self)
+
         self.models_tab = ModelsTab(
             self.state,
             self.context.storage,
@@ -162,6 +166,7 @@ class MainWindow(QMainWindow):
             self.state,
             self.context.storage,
             self.context.dataset_service,
+            scan_on_init=False,
         )
         self.training_tab = TrainingTab(
             self.state,
@@ -170,6 +175,7 @@ class MainWindow(QMainWindow):
             self.context.registry,
             self.context.model_service,
             self.context.dataset_service,
+            self.metrics_service,
         )
         self.heretic_tab = HereticTab(
             self.state,
@@ -179,6 +185,15 @@ class MainWindow(QMainWindow):
             self.context.model_service,
             credentials=self.context.credentials,
         )
+        self.analytics_tab = AnalyticsTab(
+            self.state,
+            self.context.storage,
+            self.context.job_manager,
+            self.metrics_service,
+            self.context.registry,
+            self.context.model_service,
+            self.context.dataset_service,
+        )
 
         for tab, name in zip(
             (
@@ -186,6 +201,7 @@ class MainWindow(QMainWindow):
                 self.datasets_tab,
                 self.training_tab,
                 self.heretic_tab,
+                self.analytics_tab,
             ),
             self.TAB_NAMES,
             strict=True,
@@ -198,6 +214,9 @@ class MainWindow(QMainWindow):
         root.addWidget(self.status_strip)
 
         self.setCentralWidget(central)
+
+        # Populate the dataset table after the window can already be shown.
+        QTimer.singleShot(0, lambda: self.datasets_tab.scan_datasets())
 
     def _connect_signals(self) -> None:
         self.state.hardware_changed.connect(self.status_strip.apply_snapshot)

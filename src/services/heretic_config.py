@@ -45,7 +45,7 @@ SCORER_LABELS = {
 }
 MODIFIER_LABELS = {
     "ARA (Heretic 2.x default)": MODIFIER_ARA,
-    "Directional abliteration (classic)": MODIFIER_ABLITERATION,
+    "Abliteration (classic)": MODIFIER_ABLITERATION,
 }
 OPTIMIZATIONS = ("minimize", "maximize", "none")
 QUANTIZATIONS = ("none", "bnb_4bit")
@@ -152,7 +152,7 @@ class HereticConfig:
     model_commit: str | None = None
     dtypes: list[str] = field(default_factory=lambda: ["auto", "float16", "bfloat16", "float32"])
     quantization: str = "none"
-    device_map: str = "auto"
+    device_map: str | dict[str, int | str] = "auto"
     max_memory: dict[str, str] | None = None
     offload_outputs_to_cpu: bool = True
     batch_size: int = 0
@@ -404,6 +404,11 @@ class HereticConfig:
             errors.append("max_response_length must be at least 1")
         if self.quantization not in QUANTIZATIONS:
             errors.append(f"quantization must be one of {', '.join(QUANTIZATIONS)}")
+        if isinstance(self.device_map, dict):
+            if not self.device_map:
+                errors.append("device_map table cannot be empty")
+        elif not self.device_map.strip():
+            errors.append("device_map cannot be blank; use 'auto' for automatic placement")
         if len(self.modifiers) != 1:
             errors.append("Heretic currently requires exactly one modifier")
         if not any(entry.optimization in ("minimize", "maximize") for entry in self.scorers):
@@ -662,6 +667,20 @@ def _as_cot_blocks(value: Any, name: str) -> list[list[str]]:
     return blocks
 
 
+def _as_device_map(value: Any, name: str) -> str | dict[str, int | str]:
+    """``device_map`` accepts a device string or a device -> id/name table."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict) and all(
+        isinstance(key, str) and isinstance(item, (int, str)) and not isinstance(item, bool)
+        for key, item in value.items()
+    ):
+        return dict(value)
+    raise HereticConfigError(
+        f"{name} must be a string or a table of device -> integer/string values"
+    )
+
+
 def _as_max_memory(value: Any, name: str) -> dict[str, str] | None:
     if value is None:
         return None
@@ -689,7 +708,7 @@ _SCALAR_CASTS = {
     "model_commit": _as_optional_str,
     "dtypes": _as_str_list,
     "quantization": _as_str,
-    "device_map": _as_str,
+    "device_map": _as_device_map,
     "max_memory": _as_max_memory,
     "offload_outputs_to_cpu": _as_bool,
     "batch_size": _as_int,

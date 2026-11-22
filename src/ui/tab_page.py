@@ -23,6 +23,8 @@ class TabPage(QWidget):
         title: str,
         subtitle: str,
         parent: QWidget | None = None,
+        *,
+        body_scroll: bool = True,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("TabPage")
@@ -49,17 +51,24 @@ class TabPage(QWidget):
         self.subtitle_label.setWordWrap(True)
         outer.addWidget(self.subtitle_label)
 
-        self._scroll = QScrollArea(self)
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._container = QWidget(self._scroll)
+        self._container = QWidget(self)
         self._container.setObjectName("TabContent")
         self.content = QVBoxLayout(self._container)
-        self.content.setContentsMargins(0, 4, 4, 4)
         self.content.setSpacing(12)
-        self._scroll.setWidget(self._container)
-        outer.addWidget(self._scroll, 1)
+        if body_scroll:
+            self.content.setContentsMargins(0, 4, 4, 4)
+            self._scroll = QScrollArea(self)
+            self._scroll.setWidgetResizable(True)
+            self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+            self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self._scroll.setWidget(self._container)
+            outer.addWidget(self._scroll, 1)
+        else:
+            # The Heretic workstation owns its own scrollable column and needs
+            # the full remaining height for the permanent live console.
+            self.content.setContentsMargins(0, 0, 0, 0)
+            self._scroll = None
+            outer.addWidget(self._container, 1)
 
     def add(self, widget: QWidget) -> QWidget:
         self.content.addWidget(widget)

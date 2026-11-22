@@ -41,6 +41,7 @@ class TrainingTab(TabPage):
         registry: EngineRegistry | None = None,
         model_service: ModelService | None = None,
         dataset_service: DatasetService | None = None,
+        metrics_service=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(
@@ -55,6 +56,7 @@ class TrainingTab(TabPage):
         self._registry = registry or EngineRegistry(storage.settings, parent=self)
         self._model_service = model_service or ModelService(storage)
         self._dataset_service = dataset_service or DatasetService(storage)
+        self._metrics_service = metrics_service
 
         self._active_worker: WorkerProcess | None = None
         self._active_job_id: str | None = None
@@ -193,6 +195,7 @@ class TrainingTab(TabPage):
         control.add(log_label)
         self.console = ConsoleWidget(parent=control)
         control.add(self.console)
+        self.log_view = self.console.text_edit
 
         self.add(control)
 
@@ -382,9 +385,7 @@ class TrainingTab(TabPage):
                 "script": worker_script,
             }
             self._connect_queue_signal()
-            self.console.append(
-                f"[queue] Job {job.job_id} queued; it starts when the GPU is free."
-            )
+            self.console.append(f"[queue] Job {job.job_id} queued; it starts when the GPU is free.")
             self._state.notify("info", f"Training job {job.job_id} queued.")
             return
 
@@ -545,6 +546,11 @@ class TrainingTab(TabPage):
             val = payload.get("value")
             if name == "loss" and val is not None:
                 self.loss_label.setText(f"Loss: {float(val):.4f}")
+            if self._metrics_service is not None:
+                try:
+                    self._metrics_service.capture_from_worker_message(msg)
+                except Exception:
+                    pass
 
         elif msg.type is MessageType.LOG:
             line = payload.get("message", "")

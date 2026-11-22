@@ -21,6 +21,22 @@ from workers.protocol import (
 MAX_BUFFERED_BYTES = MAX_MESSAGE_BYTES * 4
 
 
+def split_complete_lines(buffer: bytes, chunk: bytes) -> tuple[list[str], bytes]:
+    """Split ``buffer + chunk`` into complete UTF-8 lines plus a remainder.
+
+    Engine stderr is not line-buffered by QProcess, so a read can end in the
+    middle of a line. Keeping the remainder prevents two half lines from being
+    shown as two unrelated log entries.
+    """
+    data = buffer + chunk
+    if not data:
+        return [], b""
+    parts = data.split(b"\n")
+    remainder = parts.pop()
+    lines = [part.decode("utf-8", errors="replace").rstrip("\r") for part in parts]
+    return lines, remainder
+
+
 class WorkerProcess(QObject):
     """Runs one engine worker and validates everything it prints."""
 
@@ -46,6 +62,7 @@ class WorkerProcess(QObject):
         self._script = str(script)
         self._args = list(args or [])
         self._buffer = b""
+        self._stderr_buffer = b""
         self._stopping = False
         self._cwd = str(cwd) if cwd is not None else ""
 
@@ -178,9 +195,10 @@ class WorkerProcess(QObject):
         chunk = bytes(self._process.readAllStandardError())
         if not chunk:
             return
-        for line in chunk.decode("utf-8", errors="replace").splitlines():
+        lines, self._stderr_buffer = split_complete_lines(self._stderr_buffer, chunk)
+        for line in lines:
             if line.strip():
-                self.log_line.emit(line.rstrip())
+                self.log_line.emit(line)
 
     def _handle_line(self, raw_line: bytes) -> None:
         text = raw_line.decode("utf-8", errors="replace").strip()
@@ -197,6 +215,11 @@ class WorkerProcess(QObject):
         if self._buffer.strip():
             self._handle_line(self._buffer)
             self._buffer = b""
+        if self._stderr_buffer.strip():
+            remainder = self._stderr_buffer.decode("utf-8", errors="replace").strip()
+            self._stderr_buffer = b""
+            if remainder:
+                self.log_line.emit(remainder)
         self.exited.emit(int(exit_code))
 
     def _on_error(self, error: QProcess.ProcessError) -> None:

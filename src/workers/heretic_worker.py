@@ -119,55 +119,70 @@ class OutputInterceptor:
         self.total_trials = max(1, total_trials)
         self.real_stdout = real_stdout
         self.current_trial = 0
+        # Heretic writes through several buffered streams. A write can end in
+        # the middle of a line, so complete lines are assembled here instead of
+        # treating every write as a whole line.
+        self._buffer = ""
 
     def write(self, text: str) -> int:
-        for line in text.splitlines():
-            line_str = line.strip()
-            if not line_str:
-                continue
-
-            # Parse trials
-            trial_match = re.search(r"Running trial (\d+) of (\d+)", line_str)
-            if trial_match:
-                self.current_trial = int(trial_match.group(1))
-                self.total_trials = max(1, int(trial_match.group(2)))
-                frac = min(0.95, 0.1 + 0.8 * (self.current_trial / self.total_trials))
-                emit(
-                    "progress",
-                    self.job_id,
-                    {
-                        "fraction": round(frac, 3),
-                        "step": self.current_trial,
-                        "total": self.total_trials,
-                    },
-                )
-                emit("log", self.job_id, {"message": line_str, "level": "info"})
-                continue
-
-            # Every Heretic score is printed as "  * <score name>: <value>".
-            # Support bare "Refusals: 2/5" lines as well for older releases.
-            score_match = re.match(r"^(?:\*\s+)?([^:]{2,60}):\s*(.+)$", line_str)
-            if score_match:
-                name = score_match.group(1).strip()
-                raw_value = score_match.group(2).strip()
-                value = _score_value(name, raw_value)
-                if value is not None and _is_score_line(name):
-                    emit(
-                        "metric",
-                        self.job_id,
-                        {
-                            "name": _score_name(name),
-                            "value": value,
-                            "step": self.current_trial,
-                        },
-                    )
-
-            emit("log", self.job_id, {"message": line_str, "level": "info"})
-
+        self._buffer += text
+        while "\n" in self._buffer:
+            raw_line, self._buffer = self._buffer.split("\n", 1)
+            self._process_line(raw_line.rstrip("\r"))
         return len(text)
 
     def flush(self) -> None:
-        pass
+        if self._buffer:
+            raw_line, self._buffer = self._buffer, ""
+            self._process_line(raw_line.rstrip("\r"))
+
+    def _process_line(self, line: str) -> None:
+        line_str = line.strip()
+        if not line_str:
+            return
+
+        # Parse trials
+        trial_match = re.search(r"Running trial (\d+) of (\d+)", line_str)
+        if trial_match:
+            self.current_trial = int(trial_match.group(1))
+            self.total_trials = max(1, int(trial_match.group(2)))
+            frac = min(0.95, 0.1 + 0.8 * (self.current_trial / self.total_trials))
+            emit(
+                "progress",
+                self.job_id,
+                {
+                    "fraction": round(frac, 3),
+                    "step": self.current_trial,
+                    "total": self.total_trials,
+                },
+            )
+            emit(
+                "log",
+                self.job_id,
+                {"message": line, "level": "info", "stream": "stdout"},
+            )
+            return
+
+        # Every Heretic score is printed as "  * <score name>: <value>".
+        # Support bare "Refusals: 2/5" lines as well for older releases.
+        score_match = re.match(r"^(?:\*\s+)?([^:]{2,60}):\s*(.+)$", line_str)
+        if score_match:
+            name = score_match.group(1).strip()
+            raw_value = score_match.group(2).strip()
+            value = _score_value(name, raw_value)
+            if value is not None and _is_score_line(name):
+                emit(
+                    "metric",
+                    self.job_id,
+                    {
+                        "name": _score_name(name),
+                        "value": value,
+                        "step": self.current_trial,
+                    },
+                )
+
+        # Preserve the original line text; the GUI adds timestamps and colours.
+        emit("log", self.job_id, {"message": line, "level": "info", "stream": "stdout"})
 
 
 def _config_value(toml_text: str, key: str, default: str) -> str:
@@ -221,6 +236,7 @@ def run_worker(cfg: dict) -> int:
         {
             "message": f"Configuring abliteration for {model_name} ({trials} trials)...",
             "level": "info",
+            "stream": "system",
         },
     )
     emit("progress", job_id, {"fraction": 0.05, "step": 0, "total": trials})
@@ -298,7 +314,11 @@ column = "text"
         emit(
             "log",
             job_id,
-            {"message": "Starting Heretic abliteration optimization...", "level": "info"},
+            {
+                "message": "Starting Heretic abliteration optimization...",
+                "level": "info",
+                "stream": "system",
+            },
         )
         sys.stdout = interceptor  # type: ignore[assignment]
         sys.argv = ["heretic"]
@@ -313,7 +333,11 @@ column = "text"
         emit(
             "log",
             job_id,
-            {"message": "Cancellation acknowledged; Heretic is stopping.", "level": "warning"},
+            {
+                "message": "Cancellation acknowledged; Heretic is stopping.",
+                "level": "warning",
+                "stream": "system",
+            },
         )
         rc = 130
     except Exception as error:
@@ -321,6 +345,9 @@ column = "text"
         emit("error", job_id, {"message": f"{error}\n{tb[-1000:]}"})
         rc = 1
     finally:
+        # Emit any complete line that was still buffered when the engine
+        # stopped, then restore the real stream for the protocol messages.
+        interceptor.flush()
         sys.stdout = real_stdout
         with contextlib.suppress(OSError):
             os.remove(temp_cfg_path)

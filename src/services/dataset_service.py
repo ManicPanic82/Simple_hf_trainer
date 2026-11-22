@@ -68,8 +68,14 @@ def _read_arrow_table(file_path: Path):
         return reader.read_all()
 
 
-def inspect_dataset_file(file_path: Path) -> LocalDatasetRecord | None:
-    """Inspect a single file or directory to determine dataset properties."""
+def inspect_dataset_file(
+    file_path: Path, *, lightweight: bool = False
+) -> LocalDatasetRecord | None:
+    """Inspect a single file or directory to determine dataset properties.
+
+    ``lightweight`` skips reading full table contents for Arrow files; used by
+    scanning so startup is not blocked on large or actively written datasets.
+    """
     if not file_path.exists():
         return None
 
@@ -131,9 +137,23 @@ def inspect_dataset_file(file_path: Path) -> LocalDatasetRecord | None:
 
         elif fmt == "arrow":
             try:
-                table = _read_arrow_table(file_path)
-                row_count = table.num_rows
-                columns = table.column_names
+                import pyarrow as pa
+                import pyarrow.ipc as ipc
+
+                with pa.memory_map(str(file_path), "r") as source:
+                    try:
+                        reader = ipc.open_file(source)
+                    except pa.ArrowInvalid:
+                        source.seek(0)
+                        reader = ipc.open_stream(source)
+                    if lightweight:
+                        # Skip reading the full table during scans.
+                        row_count = None
+                        columns = list(reader.schema.names)
+                    else:
+                        table = reader.read_all()
+                        row_count = table.num_rows
+                        columns = table.column_names
             except Exception as error:
                 logger.warning("Could not inspect Arrow dataset %s: %s", file_path, error)
 
@@ -179,8 +199,15 @@ class DatasetService:
         if validation.exists and validation.path.is_dir():
             root = validation.path
             try:
-                for item in root.iterdir():
-                    rec = inspect_dataset_file(item)
+                # Search recursively so datasets stored in sub-folders of the
+                # datasets directory are discovered as well.
+                candidates = [root] + [p for p in root.rglob("*") if p.is_file() or p.is_dir()]
+                seen: set[Path] = set()
+                for item in candidates:
+                    if item in seen:
+                        continue
+                    seen.add(item)
+                    rec = inspect_dataset_file(item, lightweight=True)
                     if rec is not None:
                         records.append(rec)
             except OSError as error:

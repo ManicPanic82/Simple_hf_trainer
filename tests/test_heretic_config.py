@@ -127,3 +127,29 @@ def test_modifier_and_dataset_lists_are_typed() -> None:
     )
     assert cfg.modifiers[0].plugin == MODIFIER_ABLITERATION
     assert cfg.batch_size_test_prompts[0].split == "train[:2]"
+
+
+def test_device_map_accepts_a_string_or_a_table() -> None:
+    # Upstream types device_map as ``str | Dict[str, int | str]``.
+    string_cfg = HereticConfig.from_toml('device_map = "auto"\n')
+    assert string_cfg.device_map == "auto"
+
+    table_cfg = HereticConfig.from_toml('device_map = { "0" = 0, cpu = "disk" }\n')
+    assert table_cfg.device_map == {"0": 0, "cpu": "disk"}
+    assert HereticConfig.from_toml(table_cfg.to_toml()).device_map == {
+        "0": 0,
+        "cpu": "disk",
+    }
+
+    with pytest.raises(HereticConfigError, match="device_map"):
+        HereticConfig.from_toml("device_map = true\n")
+    with pytest.raises(HereticConfigError, match="device_map"):
+        HereticConfig.from_toml('device_map = { "0" = true }\n')
+
+    empty = HereticConfig.compact()
+    empty.device_map = {}
+    assert any("device_map" in problem for problem in empty.validate())
+
+    blank = HereticConfig.compact()
+    blank.device_map = "  "
+    assert any("device_map" in problem for problem in blank.validate())

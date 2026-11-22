@@ -94,6 +94,8 @@ class DatasetsTab(TabPage):
         storage: StorageService,
         dataset_service: DatasetService | None = None,
         parent: QWidget | None = None,
+        *,
+        scan_on_init: bool = True,
     ) -> None:
         super().__init__(
             "Datasets",
@@ -294,7 +296,8 @@ class DatasetsTab(TabPage):
 
         self.finish()
         self.refresh()
-        self.scan_datasets()
+        if scan_on_init:
+            self.scan_datasets()
 
     def _open_datasets(self, label: str) -> None:
         open_storage_path(self._state, self._storage, label)

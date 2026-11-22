@@ -106,3 +106,26 @@ def test_cancel_fallback_terminates_unresponsive_worker(qapp, wait_for) -> None:
         assert worker.running is False
     finally:
         worker.stop()
+
+
+def test_stderr_partial_lines_are_reassembled(qapp, wait_for) -> None:
+    script = Path(__file__).resolve().parent / "support" / "streaming_worker.py"
+    worker = WorkerProcess(sys.executable, script)
+    lines: list[str] = []
+    messages = []
+    worker.log_line.connect(lines.append)
+    worker.message_received.connect(messages.append)
+
+    worker.start()
+    try:
+        assert wait_for(lambda: any("Loading model from cache" in line for line in lines))
+        # The two fragments must never surface as separate entries.
+        assert not any(line.strip() == "Loading mo" for line in lines)
+        assert sum("Loading model from cache" in line for line in lines) == 1
+        assert wait_for(
+            lambda: any(
+                m.type is MessageType.LOG and m.payload.get("stream") == "stdout" for m in messages
+            )
+        )
+    finally:
+        worker.stop()

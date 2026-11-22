@@ -70,6 +70,30 @@ QLabel#PathValue {{
 }}
 QLabel#SectionLabel {{ color: {TEXT_MUTED}; font-weight: 600; }}
 
+QWidget#CollapsibleSection {{ background: transparent; }}
+QToolButton#SectionToggle {{
+    background: transparent;
+    border: none;
+    color: {TEXT};
+    font-weight: 600;
+    font-size: 10pt;
+    text-align: left;
+    padding: 4px 2px;
+}}
+QToolButton#SectionToggle:hover {{ color: {ACCENT}; }}
+QToolButton#SectionToggle:pressed {{ color: {TEXT}; }}
+
+QPlainTextEdit#Console {{
+    background-color: #0b0f13;
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    color: {TEXT};
+    font-family: "Cascadia Mono", "Consolas", "Courier New", monospace;
+    font-size: 9pt;
+    selection-background-color: {ACCENT};
+    selection-color: #08101c;
+}}
+
 QLabel#Pill {{
     border-radius: 9px;
     padding: 2px 9px;

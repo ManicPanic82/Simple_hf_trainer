@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -133,6 +135,13 @@ class ElidedPathLabel(QLabel):
         super().resizeEvent(event)
         self._refresh()
 
+    def minimumSizeHint(self):  # noqa: N802 - Qt API
+        # The elided text must never force the surrounding form wider than the
+        # available column; it simply elides further.
+        hint = super().minimumSizeHint()
+        hint.setWidth(80)
+        return hint
+
     def _refresh(self) -> None:
         metrics = QFontMetrics(self.font())
         available = max(80, self.width() - 4)
@@ -197,3 +206,76 @@ class StoragePathRow(QWidget):
 
     def note(self) -> str:
         return self._note
+
+
+class CollapsibleSection(QWidget):
+    """Titled section whose body can be expanded or collapsed."""
+
+    def __init__(
+        self,
+        title: str,
+        *,
+        subtitle: str | None = None,
+        expanded: bool = True,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("CollapsibleSection")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(4)
+
+        self.toggle = QToolButton(self)
+        self.toggle.setObjectName("SectionToggle")
+        # QToolButton treats '&' as a mnemonic marker, so escape it to keep
+        # titles such as "Hardware & execution" readable.
+        self.toggle.setText(title.replace("&", "&&"))
+        self.toggle.setCheckable(True)
+        self.toggle.setChecked(expanded)
+        self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        self.toggle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.toggle.clicked.connect(self.set_expanded)
+        outer.addWidget(self.toggle)
+
+        self.subtitle_label: QLabel | None = None
+        if subtitle:
+            self.subtitle_label = QLabel(subtitle, self)
+            self.subtitle_label.setObjectName("Muted")
+            self.subtitle_label.setWordWrap(True)
+            self.subtitle_label.setVisible(expanded)
+            outer.addWidget(self.subtitle_label)
+
+        self._body = QWidget(self)
+        self.body = QVBoxLayout(self._body)
+        self.body.setContentsMargins(8, 2, 0, 4)
+        self.body.setSpacing(8)
+        self._body.setVisible(expanded)
+        outer.addWidget(self._body)
+
+    def set_expanded(self, expanded: bool) -> None:
+        self.toggle.setChecked(expanded)
+        self.toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        self._body.setVisible(expanded)
+        if self.subtitle_label is not None:
+            self.subtitle_label.setVisible(expanded)
+
+    def is_expanded(self) -> bool:
+        return self._body.isVisible()
+
+    def add(self, widget: QWidget, stretch: int = 0) -> QWidget:
+        self.body.addWidget(widget, stretch)
+        return widget
+
+    def add_layout(self, layout) -> None:
+        self.body.addLayout(layout)
+
+
+__all__ = [
+    "Card",
+    "CollapsibleSection",
+    "ElidedPathLabel",
+    "FieldRow",
+    "Pill",
+    "StoragePathRow",
+]
