@@ -176,64 +176,6 @@ class HereticTrialSelectionDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Heretic - Select Trial Result")
-        self.setMinimumWidth(600)
-        self._selected_index: int | None = None
-
-        layout = QVBoxLayout(self)
-
-        label = QLabel(
-            "Heretic finished! Please select which trial result to merge and save.\n"
-            "The system-recommended choice is marked with <b>★</b>."
-        )
-        label.setWordWrap(True)
-        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(label)
-
-        self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
-
-        for index, result in enumerate(results):
-            is_recommended = index == recommended_index
-            trial_num = result.get("trial", index + 1)
-            refusals = result.get("refusals", "—")
-            kl_div = result.get("kl_divergence", "—")
-            mark = "★ " if is_recommended else "  "
-            text = f"{mark}Trial {trial_num}  ·  Refusals: {refusals}  ·  KL Div: {kl_div}"
-            radio = QRadioButton(text, self)
-            radio.setChecked(is_recommended)
-            self._group.addButton(radio, index)
-            layout.addWidget(radio)
-
-        self._group.buttonToggled.connect(self._on_button_toggled)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Merge & Save")
-        layout.addWidget(buttons)
-
-    def _on_button_toggled(self, button: QAbstractButton, checked: bool) -> None:
-        if checked and button is not None:
-            self._selected_index = self._group.id(button)
-
-    def selected_index(self) -> int | None:
-        return self._selected_index
-
-
-class HereticTrialSelectionDialog(QDialog):
-    """Dialog letting the user pick one of the top trials to re-run."""
-
-    def __init__(
-        self,
-        *,
-        results: list[dict[str, object]],
-        recommended_index: int = 0,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
         self.setWindowTitle("Select Trial to Re-Run")
         self.setMinimumWidth(580)
         self._selected_trial: int | None = None
@@ -260,6 +202,9 @@ class HereticTrialSelectionDialog(QDialog):
             text = f"{mark}Trial {trial_num}: {refusals} (KL: {kl_div})"
             radio = QRadioButton(text, self)
             self._group.addButton(radio, index)
+            if index == recommended_index:
+                radio.setChecked(True)
+                self._selected_trial = index
             layout.addWidget(radio)
 
         # Add "Run this trial" and "Go back to all trials" buttons
@@ -273,8 +218,8 @@ class HereticTrialSelectionDialog(QDialog):
         layout.addWidget(box)
 
         self._group.buttonToggled.connect(self._on_button_toggled)
-        self.accepted.connect(self.accept)
-        self.rejected.connect(self.reject)
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
 
     def _on_button_toggled(self, button: QAbstractButton, checked: bool) -> None:
         if checked and button is not None:
@@ -1788,6 +1733,8 @@ class HereticTab(TabPage):
         job_id: str,
         model_name: str,
         interpreter: object | None = None,
+        *,
+        trial_index: int | None = None,
     ) -> dict:
         job_dir, model_dir, checkpoints_dir = self._output_paths(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -1796,6 +1743,8 @@ class HereticTab(TabPage):
         except HereticConfigError:
             cfg = copy.deepcopy(self._config)
         cfg.model = model_name
+        if trial_index is not None:
+            cfg.trial_index = trial_index
         headless = cfg.headless_copy(model_dir, checkpoints_dir)
         self._pending_model_action = headless.model_action
         data = {
@@ -2251,7 +2200,6 @@ class HereticTab(TabPage):
         ranked = sorted(collected, key=_score)
 
         results: list[dict[str, object]] = []
-        seen_recommended = False
         for trial in ranked:
             result: dict[str, object] = dict(trial)  # type: ignore[arg-type]
             refusal_rate = trial.get("refusal_rate")
@@ -2397,23 +2345,63 @@ class HereticTab(TabPage):
                                 level="info",
                                 source="trial selection",
                             )
-                            job_id = self._job_manager.submit(HERETIC, model_ref=None)
-                            config_data = self.config_from_form()
-                            if problems := config_data.get("problems"):
-                                config_data["model"] = str(config_data.pop("model_name"))  # type: ignore
-                                self.toml_status.setText(f"Issues: {problems}")
-                                self._fail_start(f"Config issues: {problems[0]}", notify=False)
-                            else:
-                                job.model_name = config_data.get("model")
-                                cfg = self._build_config(job.job_id, str(job.model_name), None)
-                                self._launch_job(
-                                    job.job_id,
-                                    cfg,
-                                    None,  # interpreter not needed for re-run
-                                    Path(__file__).resolve().parents[1]
-                                    / "workers"
-                                    / "heretic_worker.py",
+                            try:
+                                selected_config = self.config_from_form()
+                            except HereticConfigError as error:
+                                self._job_manager.mark_succeeded(job_id, message=completion[1])
+                                self._fail_start(
+                                    f"Cannot re-run selected trial: {error}", notify=False
                                 )
+                            else:
+                                problems = selected_config.validate()
+                                if problems:
+                                    self._job_manager.mark_succeeded(
+                                        job_id, message=completion[1]
+                                    )
+                                    self.toml_status.setText("Issues: " + "; ".join(problems))
+                                    self._fail_start(
+                                        f"Cannot re-run selected trial: {problems[0]}",
+                                        notify=False,
+                                    )
+                                else:
+                                    # Release the completed run's GPU ownership before
+                                    # submitting the selected-trial run.
+                                    self._job_manager.mark_succeeded(
+                                        job_id, message="Completed; selected trial queued to re-run."
+                                    )
+                                    selected_config.trial_index = selected - 1
+                                    rerun = self._job_manager.submit(
+                                        HERETIC, model_ref=selected_config.model
+                                    )
+                                    rerun_config = self._build_config(
+                                        rerun.job_id,
+                                        selected_config.model,
+                                        None,
+                                        trial_index=selected_config.trial_index,
+                                    )
+                                    worker_script = (
+                                        Path(__file__).resolve().parents[1]
+                                        / "workers"
+                                        / "heretic_worker.py"
+                                    )
+                                    if rerun.state is JobState.QUEUED:
+                                        self._queued_jobs[rerun.job_id] = {
+                                            "config": rerun_config,
+                                            "interpreter": None,
+                                            "script": worker_script,
+                                        }
+                                        self._connect_queue_signal()
+                                        self.console.append(
+                                            f"Selected trial re-run {rerun.job_id} queued; "
+                                            "it starts when the GPU is free.",
+                                            level="system",
+                                            source="queue",
+                                        )
+                                        self._set_worker_pill("Worker · queued", "info")
+                                    else:
+                                        self._launch_job(
+                                            rerun.job_id, rerun_config, None, worker_script
+                                        )
                     else:
                         self._job_manager.mark_succeeded(job_id, message=completion[1])
                         self._set_worker_pill("Worker · completed", "ok")
