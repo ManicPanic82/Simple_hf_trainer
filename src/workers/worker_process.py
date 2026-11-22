@@ -90,6 +90,8 @@ class WorkerProcess(QObject):
 
     def start(self) -> None:
         self._buffer = b""
+        self._stderr_buffer = b""
+        self._stopping = False
         # Make the actual launch target visible in the UI log. Engine imports can
         # silently use the wrong interpreter if settings or environment variables
         # resolve to a different Python, so record exactly what QProcess runs.
@@ -195,10 +197,17 @@ class WorkerProcess(QObject):
         chunk = bytes(self._process.readAllStandardError())
         if not chunk:
             return
-        lines, self._stderr_buffer = split_complete_lines(self._stderr_buffer, chunk)
+        lines, remainder = split_complete_lines(self._stderr_buffer, chunk)
+        self._stderr_buffer = remainder
         for line in lines:
             if line.strip():
                 self.log_line.emit(line)
+        if len(self._stderr_buffer) > MAX_BUFFERED_BYTES:
+            self.log_line.emit(
+                "[stderr] unterminated output line exceeded "
+                f"{MAX_BUFFERED_BYTES} bytes; remainder discarded."
+            )
+            self._stderr_buffer = b""
 
     def _handle_line(self, raw_line: bytes) -> None:
         text = raw_line.decode("utf-8", errors="replace").strip()
