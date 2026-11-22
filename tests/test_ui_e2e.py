@@ -5,7 +5,6 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app.application import create_window
-from ui.main_window import MainWindow
 
 
 def test_ui_e2e_window_tabs_and_widgets(context) -> None:
