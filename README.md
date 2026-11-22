@@ -57,7 +57,7 @@ accepting or releasing a build.
 ## Quick start (PowerShell)
 
 ```powershell
-git clone https://github.com/ManicPanic82/Simple_hf_trainer.git
+git clone --branch fix/restore-four-tab-contract https://github.com/ManicPanic82/Simple_hf_trainer.git
 cd Simple_hf_trainer
 
 py -3.12 -m venv environments\app
