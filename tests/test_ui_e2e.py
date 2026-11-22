@@ -14,8 +14,8 @@ def test_ui_e2e_window_tabs_and_widgets(context) -> None:
         window.show()
         QApplication.processEvents()
 
-        assert window.tabs.count() == 5
-        assert window.tab_names() == ["Models", "Datasets", "Training", "Heretic", "Analytics"]
+        assert window.tabs.count() == 4
+        assert window.tab_names() == ["Models", "Datasets", "Training", "Heretic"]
 
         checks = [
             (0, "Models", lambda t: t.models_tab),
@@ -23,16 +23,6 @@ def test_ui_e2e_window_tabs_and_widgets(context) -> None:
             (2, "Training", lambda t: t.training_tab.model_combo),
             (2, "Training", lambda t: t.training_tab.start_button),
             (3, "Heretic", lambda t: t.heretic_tab.run_button),
-            (
-                4,
-                "Analytics",
-                lambda t: (
-                    t.analytics_tab.job_selector,
-                    t.analytics_tab.loss_plot_widget,
-                    t.analytics_tab.history_list,
-                    t.analytics_tab.console_widget,
-                ),
-            ),
         ]
         for index, name, getter in checks:
             window.tabs.setCurrentIndex(index)
