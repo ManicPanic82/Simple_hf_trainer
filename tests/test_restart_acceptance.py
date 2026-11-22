@@ -58,9 +58,7 @@ def test_settings_models_and_datasets_survive_a_fresh_start(tmp_path: Path, qapp
     )
 
 
-def test_job_history_persists_but_active_session_is_not_restored(
-    qapp, tmp_path: Path
-) -> None:
+def test_job_history_persists_but_active_session_is_not_restored(qapp, tmp_path: Path) -> None:
     """Terminal history survives restart; active worker state never does."""
     history_file = tmp_path / "jobs.json"
     manager = JobManager(history_file=history_file)
