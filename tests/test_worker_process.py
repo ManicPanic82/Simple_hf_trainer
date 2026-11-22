@@ -151,6 +151,6 @@ def test_unterminated_stderr_line_is_bounded(qapp, wait_for, tmp_path: Path) -> 
         warnings = [line for line in lines if "unterminated output line exceeded" in line]
         assert warnings
         assert all(len(line) < 200 for line in warnings)
-        assert not any(line.startswith("x" * 100) for line in lines)
+        assert all(len(line.encode("utf-8")) <= MAX_BUFFERED_BYTES for line in lines)
     finally:
         worker.stop()
