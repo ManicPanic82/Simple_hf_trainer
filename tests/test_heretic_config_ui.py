@@ -172,6 +172,9 @@ def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
     tab._show_trial_selection_dialog = lambda results, recommended_index: 2
     tab._verify_output = lambda: []
     tab._config.model = "org/model"
+    interpreter = tmp_path / "heretic-python.exe"
+    interpreter.write_text("", encoding="utf-8")
+    tab._registry.status.return_value = SimpleNamespace(interpreter=interpreter)
 
     queued = SimpleNamespace(job_id="heretic-2", state=JobState.STARTING)
     tab._job_manager.submit.return_value = queued
@@ -187,7 +190,7 @@ def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
     )
     tab._job_manager.submit.assert_called_once_with(HERETIC, model_ref="org/model")
     tab._build_config.assert_called_once_with(
-        "heretic-2", "org/model", None, trial_index=1
+        "heretic-2", "org/model", interpreter, trial_index=1
     )
     assert tab._active_job_id is None
     assert len(scheduled) == 1
@@ -195,6 +198,6 @@ def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
     tab._launch_job.assert_called_once_with(
         "heretic-2",
         {"job_id": "heretic-2"},
-        None,
+        interpreter,
         Path(__file__).resolve().parents[1] / "src" / "workers" / "heretic_worker.py",
     )
