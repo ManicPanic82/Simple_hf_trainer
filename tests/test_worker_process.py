@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from workers.protocol import MessageType
-from workers.worker_process import WorkerProcess
+from workers.worker_process import MAX_BUFFERED_BYTES, WorkerProcess
 
 SCRIPT = Path(__file__).resolve().parent / "support" / "fake_worker.py"
 
@@ -127,5 +127,33 @@ def test_stderr_partial_lines_are_reassembled(qapp, wait_for) -> None:
                 m.type is MessageType.LOG and m.payload.get("stream") == "stdout" for m in messages
             )
         )
+    finally:
+        worker.stop()
+
+
+
+def test_unterminated_stderr_line_is_bounded(qapp, wait_for, tmp_path: Path) -> None:
+    script = tmp_path / "stderr_flood.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stderr.write('x' * ("
+        + str(MAX_BUFFERED_BYTES * 3)
+        + "))\n"
+        "sys.stderr.flush()\n",
+        encoding="utf-8",
+    )
+    worker = WorkerProcess(sys.executable, script)
+    lines: list[str] = []
+    exits: list[int] = []
+    worker.log_line.connect(lines.append)
+    worker.exited.connect(exits.append)
+
+    worker.start()
+    try:
+        assert wait_for(lambda: bool(exits), timeout_ms=10_000)
+        warnings = [line for line in lines if "unterminated output line exceeded" in line]
+        assert warnings
+        assert all(len(line) < 200 for line in warnings)
+        assert not any(line.startswith("x" * 100) for line in lines)
     finally:
         worker.stop()
