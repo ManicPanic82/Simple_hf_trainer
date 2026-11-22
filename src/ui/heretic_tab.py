@@ -1697,6 +1697,7 @@ class HereticTab(TabPage):
             self._fail_start(f"Worker script not found: {worker_script}")
             return
 
+        self._awaiting_trial_selection = False
         try:
             job = self._job_manager.submit(HERETIC, model_ref=model_name)
         except Exception as error:  # noqa: BLE001 - report, never crash the GUI
@@ -2353,6 +2354,7 @@ class HereticTab(TabPage):
                                     f"Cannot re-run selected trial: {error}", notify=False
                                 )
                             else:
+                                selected_config.model = self._selected_model()
                                 problems = selected_config.validate()
                                 if problems:
                                     self._job_manager.mark_succeeded(
@@ -2399,8 +2401,15 @@ class HereticTab(TabPage):
                                         )
                                         self._set_worker_pill("Worker · queued", "info")
                                     else:
-                                        self._launch_job(
-                                            rerun.job_id, rerun_config, None, worker_script
+                                        # The current worker's exit handler still has cleanup
+                                        # to perform. Start the next process on the next event
+                                        # loop turn so that cleanup cannot clear its state.
+                                        QTimer.singleShot(
+                                            0,
+                                            lambda job_id=rerun.job_id, config=rerun_config,
+                                            script=worker_script: self._launch_job(
+                                                job_id, config, None, script
+                                            ),
                                         )
                     else:
                         self._job_manager.mark_succeeded(job_id, message=completion[1])
