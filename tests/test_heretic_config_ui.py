@@ -165,6 +165,7 @@ def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
     from workers.job_manager import JobState
 
     tab = _tab(tmp_path)
+    tab.model_combo.setEditText("org/model")
     tab._active_job_id = "heretic-1"
     tab._pending_completion = (True, "initial run complete")
     tab._trial_ranked_results = lambda limit=3: ([{"trial": 1}, {"trial": 2}], 1)
@@ -192,5 +193,8 @@ def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
     assert len(scheduled) == 1
     scheduled[0]()
     tab._launch_job.assert_called_once_with(
-        "heretic-2", {"job_id": "heretic-2"}, None, tab._launch_job.call_args.args[3]
+        "heretic-2",
+        {"job_id": "heretic-2"},
+        None,
+        Path(__file__).resolve().parents[1] / "src" / "workers" / "heretic_worker.py",
     )
