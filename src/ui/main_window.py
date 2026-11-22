@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 from app.state import Notice
 from services.engine_registry import EngineState, EngineStatus
 from services.metrics_service import MetricsService
-from ui.analytics_tab import AnalyticsTab
 from ui.components import Pill
 from ui.datasets_tab import DatasetsTab
 from ui.heretic_tab import HereticTab
@@ -78,7 +77,7 @@ class NoticeBanner(QFrame):
 class MainWindow(QMainWindow):
     """The single application window. Four tabs, in fixed order."""
 
-    TAB_NAMES = ("Models", "Datasets", "Training", "Heretic", "Analytics")
+    TAB_NAMES = ("Models", "Datasets", "Training", "Heretic")
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -185,23 +184,12 @@ class MainWindow(QMainWindow):
             self.context.model_service,
             credentials=self.context.credentials,
         )
-        self.analytics_tab = AnalyticsTab(
-            self.state,
-            self.context.storage,
-            self.context.job_manager,
-            self.metrics_service,
-            self.context.registry,
-            self.context.model_service,
-            self.context.dataset_service,
-        )
-
         for tab, name in zip(
             (
                 self.models_tab,
                 self.datasets_tab,
                 self.training_tab,
                 self.heretic_tab,
-                self.analytics_tab,
             ),
             self.TAB_NAMES,
             strict=True,
