@@ -14,7 +14,7 @@ The tag is a historical marker for that foundation, **not** a claim that every
 engine workflow was validated. It did not include a job queue, a persistent
 model/dataset registry, or a custom download-progress widget.
 
-## Current development state — `fix/desktop-foundation-review`
+## Current development state — `fix/restore-four-tab-contract`
 
 The development branch carries working implementations ahead of the original
 "foundation first" phase boundary: model discovery and downloads, dataset
@@ -24,7 +24,7 @@ GPU-exclusive job manager.
 
 Validation at this point:
 
-- **195 tests pass**; `ruff check` and `ruff format --check` are clean across `src` and `tests` (Windows, offscreen Qt; no test downloads models or datasets).
+- **Historical validation only:** the previous branch recorded 195 passing tests and clean Ruff checks. Those results predate the current repair branch and must be rerun before release.
 - A real **Unsloth 5-step 4-bit LoRA training run** was validated end-to-end on the reference GTX 1660: Unsloth imported at 20.6 s, model loaded at 32.1 s, all 5 steps completed, adapter and tokenizer saved, `JOB_COMPLETE success=True`, zero protocol errors.
 - A real **Heretic abliteration run** was validated through the same QProcess launcher: 2 trials, refusal/KL metrics, merged model saved with 6 artifacts, `JOB_COMPLETE success=True`, zero protocol errors.
 - Both workers had the same Windows startup defect: a daemon stdin-cancellation listener blocked C-extension imports. The listener is now attached only after engine setup, immediately before the engine runs; regression tests guard the ordering. The Heretic worker also had a protocol-stream recursion defect (its interceptor re-emitted through the replaced `sys.stdout`), now fixed by capturing a private protocol stream.
@@ -32,6 +32,10 @@ Validation at this point:
 - Dataset Hub download/import, split/file selection for preview and preparation, and honest per-file model-download progress with between-files cancellation were added. Compatibility checks are advisory only — unknown model/GPU combinations are never silently blocked.
 - The GPU job manager now queues further engine requests FIFO and launches them automatically when the GPU is free. Discovered models/datasets are catalogued in `registry.json`, and terminal job records are retained in `jobs.json`; both are best-effort local caches rebuilt defensively after a corrupt file.
 - Training can export a merged fp16 checkpoint (default) with the LoRA weights folded in, so the result is discovered as a base model and can be selected as the starting point for continued training. Adapter-only export remains available.
+
+## Current repair status
+
+The review branch had drifted from the agreed four-workflow layout by adding an unfinished Analytics tab. The repair branch restores the four-tab contract (Models, Datasets, Training, Heretic) and removes the incomplete Analytics workspace. Current Windows pytest, Ruff, clean-install, and real-engine acceptance results must be recorded after local validation.
 
 ## Known limitations
 
