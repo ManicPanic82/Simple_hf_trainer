@@ -41,9 +41,13 @@ Exact package versions from that run are in
 ## 2. Get the repository
 
 ```powershell
-git clone https://github.com/ManicPanic82/Simple_hf_trainer.git
+git clone --branch fix/restore-four-tab-contract https://github.com/ManicPanic82/Simple_hf_trainer.git
 cd Simple_hf_trainer
 ```
+
+The application source currently lives on the development branch shown above. The repository's
+`main` branch is not the application checkout; do not use a plain default-branch clone for this
+validation.
 
 ## 3. Application environment
 
@@ -150,10 +154,38 @@ $env:HERETIC_CONFIG_FILE = (Resolve-Path config\heretic-verify.toml).Path
 .\environments\heretic\Scripts\heretic.exe
 ```
 
-The Phase 1 application does **not** drive Heretic yet; the compatibility report records what
-was tested directly and what remains unverified.
+The desktop application includes a Heretic workflow that launches the configured isolated
+interpreter through its headless wrapper. The direct compatibility smoke test above proves the
+engine can modify and export a small model; it does not replace acceptance testing through the
+graphical workflow.
 
-## 7. Pointing the application at the engines
+## 7. Runtime acceptance through the desktop app
+
+After both engine environments are installed and detected, launch the app and perform these
+checks with the small reference model `Qwen/Qwen2.5-0.5B-Instruct`:
+
+1. In **Training**, select a small local JSONL dataset, choose a short run (5 steps, batch 1,
+   sequence length 128 or 256), and save an adapter to a new output folder.
+2. Confirm the console shows the configured Unsloth interpreter and worker script, progress
+   advances, the run reaches a terminal success state, and adapter files exist in the output.
+3. In **Heretic**, load the compact verification configuration, keep the run to two trials and
+   short prompt slices, and choose a new output folder. Do not point it at an existing model
+   directory.
+4. Confirm the Heretic console shows the isolated interpreter/wrapper, trial progress appears,
+   and the selected trial is exported. Confirm the output contains a model config and weight
+   files.
+5. While one engine is running, queue a job for the other engine. Confirm the second job waits
+   and does not start until the first process exits and releases GPU ownership.
+6. Cancel a short run. Confirm the job reaches Cancelled (or Failed if the engine exits
+   abnormally), the worker process exits, and the queued job can then acquire the GPU.
+
+Treat this as a destructive boundary: use disposable output folders, never overwrite a model
+or dataset, and do not test upload unless you explicitly intend to publish a model.
+
+Record the model, dataset, settings, engine versions, exit status, and output paths when
+reporting acceptance. A passing unit suite does not substitute for these real-process checks.
+
+## 8. Pointing the application at the engines
 
 Two equivalent options:
 
@@ -176,7 +208,7 @@ imports torch into the GUI process.
 
 ---
 
-## 8. Storage
+## 9. Storage
 
 Defaults (override with the `SIMPLE_HF_TRAINER_HOME` environment variable):
 
@@ -193,14 +225,14 @@ Settings live in `%LOCALAPPDATA%\SimpleHFTrainer\settings.json`; logs in
 Storage paths must be absolute. On save, the app validates them, offers to create missing
 folders, and reports unwritable or file-in-the-way paths. It never deletes or moves data.
 
-## 9. Credentials
+## 10. Credentials
 
 Hugging Face tokens are stored in **Windows Credential Manager** under
 `SimpleHFTrainer/HuggingFace`. They are never written to `settings.json`, logs, or the
 repository. A `HF_TOKEN` environment variable is honoured by the Hugging Face libraries
 themselves; the app does not read or store it in plaintext.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Cause / fix |
 | --- | --- |
@@ -212,7 +244,7 @@ themselves; the app does not read or store it in plaintext.
 | Long path errors | Keep the repository path short, e.g. `C:\dev\Simple_hf_trainer`, and avoid deep output folders. |
 | Two engines at once | Not possible by design: the job manager owns a single GPU lock and rejects the second request. |
 
-## 11. Uninstalling / cleaning up
+## 12. Uninstalling / cleaning up
 
 The application never deletes user data. To remove everything manually:
 
