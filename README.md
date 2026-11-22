@@ -13,7 +13,7 @@ as the scarce resource it is.
 
 ## Current status
 
-The `feature/desktop-foundation` development branch contains the four-tab desktop
+The `fix/restore-four-tab-contract` development branch contains the four-tab desktop
 application and working implementations for model discovery, dataset preparation,
 Unsloth fine-tuning, and Heretic abliteration. This is a development branch, not a
 release-ready claim: the initial project plan called for a desktop foundation first,
@@ -40,9 +40,9 @@ and its limitations.
 
 ### Previously recorded validation
 
-The branch author recorded 123 passing tests and a clean Ruff run before the review repairs.
-Those results are historical and must not be treated as validation of the current repair
-branch until the Windows test and lint commands below have been rerun.
+Validation is in progress on the repair branch. Historical test counts from earlier branches
+are not evidence that this branch passes. Run the Windows test and lint commands below before
+accepting or releasing a build.
 
 
 ## Requirements
