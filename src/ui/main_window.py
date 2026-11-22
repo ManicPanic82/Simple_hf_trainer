@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
 
 from app.state import Notice
 from services.engine_registry import EngineState, EngineStatus
-from services.metrics_service import MetricsService
 from ui.components import Pill
 from ui.datasets_tab import DatasetsTab
 from ui.heretic_tab import HereticTab
@@ -154,8 +153,6 @@ class MainWindow(QMainWindow):
         self.tabs.setObjectName("MainTabs")
         self.tabs.setDocumentMode(True)
 
-        self.metrics_service = MetricsService(self)
-
         self.models_tab = ModelsTab(
             self.state,
             self.context.storage,
@@ -174,7 +171,6 @@ class MainWindow(QMainWindow):
             self.context.registry,
             self.context.model_service,
             self.context.dataset_service,
-            self.metrics_service,
         )
         self.heretic_tab = HereticTab(
             self.state,
