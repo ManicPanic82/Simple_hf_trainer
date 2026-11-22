@@ -128,3 +128,27 @@ def test_profile_origin_distinguishes_upstream_and_bundled(qapp, tmp_path: Path)
 
     tab.preset_combo.setCurrentIndex(tab.preset_combo.findData("compact"))
     assert "Built-in low-VRAM profile" in tab.profile_origin_label.text()
+
+
+def test_build_config_preserves_selected_trial_index(qapp, tmp_path: Path) -> None:
+    tab = _tab(tmp_path)
+    tab.model_combo.setEditText("org/model")
+    config = tab._build_config("heretic-selected-trial", "org/model", trial_index=2)
+
+    parsed = HereticConfig.from_toml(config["toml"])
+    assert parsed.model == "org/model"
+    assert parsed.trial_index == 2
+
+
+def test_trial_selection_dialog_defaults_to_recommended_trial(qapp) -> None:
+    from ui.heretic_tab import HereticTrialSelectionDialog
+
+    dialog = HereticTrialSelectionDialog(
+        results=[
+            {"trial": 1, "refusals": "20%", "kl_divergence": "0.02"},
+            {"trial": 2, "refusals": "5%", "kl_divergence": "0.01"},
+        ],
+        recommended_index=1,
+    )
+
+    assert dialog.selected_trial() == 1
