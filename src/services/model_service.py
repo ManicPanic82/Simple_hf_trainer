@@ -283,7 +283,7 @@ class ModelService:
             self._catalog.save()
         return records
 
-    def search_hub(self, query: str, limit: int = 20) -> list[HubModelRecord]:
+    def search_hub(self, query: str, limit: int | None = None) -> list[HubModelRecord]:
         """Search Hugging Face Hub models."""
         from huggingface_hub import HfApi
 
