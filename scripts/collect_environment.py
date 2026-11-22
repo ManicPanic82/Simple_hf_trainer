@@ -125,9 +125,7 @@ else:
         )
     print(json.dumps(info, indent=2))
 """
-    code_block(
-        run([sys.executable, "-c", f"import os;{torch_probe}"], timeout=120), "json"
-    )
+    code_block(run([sys.executable, "-c", f"import os;{torch_probe}"], timeout=120), "json")
 
     section("Relevant installed packages")
     code_block(
