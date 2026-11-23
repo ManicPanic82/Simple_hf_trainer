@@ -90,29 +90,38 @@ def inspect_dataset_file(
         row_count: int | None = None
 
         if fmt == "jsonl":
-            # Discovery samples the first non-empty row. Counting every line
-            # makes startup proportional to the full dataset size.
             try:
                 with open(file_path, encoding="utf-8", errors="replace") as f:
-                    for line in f:
-                        if not line.strip():
-                            continue
-                        obj = json.loads(line)
-                        if isinstance(obj, dict):
-                            columns = list(obj.keys())
-                        break
+                    if lightweight:
+                        # Sample one non-empty row; full row counts are deferred.
+                        for line in f:
+                            if not line.strip():
+                                continue
+                            obj = json.loads(line)
+                            if isinstance(obj, dict):
+                                columns = list(obj.keys())
+                            break
+                    else:
+                        count = 0
+                        for idx, line in enumerate(f):
+                            count += 1
+                            if idx == 0:
+                                obj = json.loads(line)
+                                if isinstance(obj, dict):
+                                    columns = list(obj.keys())
+                        row_count = count
             except (OSError, ValueError):
                 pass
 
         elif fmt == "csv":
-            # The header is sufficient to identify the schema during discovery.
             try:
                 with open(file_path, encoding="utf-8", errors="replace", newline="") as f:
-                    header = next(csv.reader(f), None)
+                    reader = csv.reader(f)
+                    header = next(reader, None)
                     if header:
                         columns = [col.strip() for col in header]
-            except OSError:
-                pass
+                    if not lightweight:
+                        row_count = sum(1 for _ in reader)
 
         elif fmt == "json":
             # Avoid parsing a potentially large JSON array during discovery.
