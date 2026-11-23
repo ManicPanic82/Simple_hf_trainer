@@ -200,8 +200,15 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
-        # Populate the dataset table after the window can already be shown.
-        QTimer.singleShot(100, lambda: self.datasets_tab.scan_datasets())
+        # Initial discovery is scheduled only after the window is shown. These
+        # window-owned timers can be cancelled safely if the user closes early.
+        self._models_scan_timer = QTimer(self)
+        self._models_scan_timer.setSingleShot(True)
+        self._models_scan_timer.timeout.connect(self.models_tab.scan_library)
+
+        self._datasets_scan_timer = QTimer(self)
+        self._datasets_scan_timer.setSingleShot(True)
+        self._datasets_scan_timer.timeout.connect(self.datasets_tab.scan_datasets)
 
     def _connect_signals(self) -> None:
         self.state.hardware_changed.connect(self.status_strip.apply_snapshot)
@@ -233,18 +240,25 @@ class MainWindow(QMainWindow):
     # -- lifecycle -------------------------------------------------------
 
     def start(self) -> None:
-        """Begin background monitoring. Called once the window is shown."""
+        """Begin background monitoring and schedule initial discovery."""
         self.context.monitor.start()
         self.context.registry.refresh_async()
-        QTimer.singleShot(100, self.models_tab.scan_library)
-        # Dataset scan is scheduled after the window is created (see _build_layout).
+        if not getattr(self, "_shutdown_pending", False):
+            self._models_scan_timer.start(100)
+            self._datasets_scan_timer.start(100)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._stop_startup_scan_timers()
         if not getattr(self, "_force_close", False) and self._workers_running():
             event.ignore()
             self._begin_shutdown()
             return
         self._finalize_close(event)
+
+    def _stop_startup_scan_timers(self) -> None:
+        """Cancel delayed initial scans before shutdown or widget destruction."""
+        for timer in (self._models_scan_timer, self._datasets_scan_timer):
+            timer.stop()
 
     def _workers_running(self) -> bool:
         """Whether an engine process or local discovery thread is still active."""
@@ -386,6 +400,7 @@ class MainWindow(QMainWindow):
                 timer.stop()
 
     def _finalize_close(self, event) -> None:
+        self._stop_startup_scan_timers()
         self._stop_shutdown_timers()
         self.context.monitor.stop()
         self.context.registry.wait_for_idle(3000)
