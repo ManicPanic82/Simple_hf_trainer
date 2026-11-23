@@ -264,6 +264,11 @@ def run_worker(cfg: dict) -> int:
     try:
         print("[checkpoint] Before dataset validation", file=sys.stderr, flush=True)
         dataset_path = validate_dataset_path(dataset_path_str)
+        eval_dataset_path = None
+        if eval_strategy != "no":
+            eval_dataset_path = validate_dataset_path(eval_dataset_path_str)
+            if eval_dataset_path.resolve() == dataset_path.resolve():
+                raise ValueError("Training and evaluation datasets must be different files.")
         print(
             f"[checkpoint] Dataset validated: {dataset_path}",
             file=sys.stderr,
@@ -297,7 +302,7 @@ def run_worker(cfg: dict) -> int:
         job_id,
         {"message": f"Loading model {model_name} in 4-bit precision...", "level": "info"},
     )
-    emit("progress", job_id, {"fraction": 0.05, "step": 0, "total": max_steps})
+    emit("progress", job_id, {"fraction": 0.05, "step": 0, "total": max(1, max_steps)})
 
     try:
         print("[checkpoint] Before model loading", file=sys.stderr, flush=True)
@@ -344,10 +349,7 @@ def run_worker(cfg: dict) -> int:
             raise ValueError(f"Training dataset is empty: {dataset_path}")
         eval_dataset = None
         if eval_strategy != "no":
-            eval_path = validate_dataset_path(eval_dataset_path_str)
-            if eval_path.resolve() == dataset_path.resolve():
-                raise ValueError("Training and evaluation datasets must be different files.")
-            eval_dataset = load_dataset_file(eval_path)
+            eval_dataset = load_dataset_file(eval_dataset_path)
             if len(eval_dataset) == 0:
                 raise ValueError(f"Evaluation dataset is empty: {eval_path}")
             emit(
@@ -507,8 +509,8 @@ def run_worker(cfg: dict) -> int:
             job_id,
             {
                 "fraction": 0.98,
-                "step": int(getattr(getattr(trainer, "state", None), "global_step", max_steps)),
-                "total": max_steps,
+                "step": int(getattr(getattr(trainer, "state", None), "global_step", progress_total_steps)),
+                "total": progress_total_steps,
             },
         )
 
