@@ -47,6 +47,10 @@ def _worker_messages(job_id: str, output_dir: Path) -> list[WorkerMessage]:
         WorkerMessage(type=MessageType.READY, payload={"engine": "unsloth", "version": "1.0"}),
         WorkerMessage(type=MessageType.LOG, payload={"message": "LoRA training started"}),
         WorkerMessage(type=MessageType.PROGRESS, payload={"fraction": 0.5, "step": 3, "total": 5}),
+        WorkerMessage(
+            type=MessageType.METRIC,
+            payload={"name": "eval_loss", "value": 0.42, "step": 3},
+        ),
         WorkerMessage(type=MessageType.RESULT, payload={"output_dir": str(output_dir)}),
         WorkerMessage(
             type=MessageType.JOB_COMPLETE,
@@ -73,6 +77,7 @@ def test_successful_job_publishes_scanned_models(qapp, tmp_path: Path) -> None:
 
     # The RESULT message still drives the "Last adapter" row.
     assert tab.last_adapter_row.value.text() == str(output_dir)
+    assert tab.eval_loss_label.text() == "Eval loss: 0.4200"
 
     tab._on_worker_exited(0)
 
