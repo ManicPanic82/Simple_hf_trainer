@@ -205,7 +205,6 @@ def test_model_info_lookup_runs_in_background(qapp, wait_for) -> None:
         worker.wait(5_000)
 
 
-
 def test_local_discovery_workers_run_outside_the_gui_thread(qapp, wait_for) -> None:
     gui_thread_id = threading.get_ident()
     model_threads: list[int] = []
@@ -236,6 +235,7 @@ def test_local_discovery_workers_run_outside_the_gui_thread(qapp, wait_for) -> N
 
     assert model_threads[0] != gui_thread_id
     assert dataset_threads[0] != gui_thread_id
+
 
 def test_training_job_keeps_gpu_lock_until_process_exit(qapp, tmp_path: Path) -> None:
     settings = settings_with(
