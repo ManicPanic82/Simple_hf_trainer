@@ -375,9 +375,11 @@ def run_worker(cfg: dict) -> int:
 
         class ProtocolCallback(TrainerCallback):
             def on_log(self, args, state, control, logs=None, **kwargs):
-                if logs and "loss" in logs:
+                if not logs:
+                    return
+                step = int(state.global_step)
+                if "loss" in logs:
                     loss_val = float(logs["loss"])
-                    step = int(state.global_step)
                     emit("metric", job_id, {"name": "loss", "value": loss_val, "step": step})
                     emit(
                         "log",
@@ -386,6 +388,18 @@ def run_worker(cfg: dict) -> int:
                             "message": f"Step {step}/{progress_total_steps} · loss: {loss_val:.4f}",
                             "level": "info",
                         },
+                    )
+                if "eval_loss" in logs:
+                    eval_loss = float(logs["eval_loss"])
+                    emit(
+                        "metric",
+                        job_id,
+                        {"name": "eval_loss", "value": eval_loss, "step": step},
+                    )
+                    emit(
+                        "log",
+                        job_id,
+                        {"message": f"Evaluation at step {step} · loss: {eval_loss:.4f}", "level": "info"},
                     )
 
             def on_step_end(self, args, state, control, **kwargs):
