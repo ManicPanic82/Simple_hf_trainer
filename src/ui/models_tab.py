@@ -591,6 +591,8 @@ class ModelsTab(TabPage):
             workers.append(download)
         if self._search_worker is not None:
             workers.append(self._search_worker)
+        if self._scan_worker is not None:
+            workers.append(self._scan_worker)
         workers.extend(self._info_workers)
         for worker in workers:
             with suppress(Exception):
