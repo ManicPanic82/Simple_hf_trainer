@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import json
 import inspect
+import json
 import math
 import os
 import sys
@@ -230,11 +230,23 @@ def run_worker(cfg: dict) -> int:
         return 1
 
     if max_steps < 0 or num_train_epochs <= 0 or warmup_steps < 0:
-        emit("error", job_id, {"message": "Max steps must be zero or greater, epochs must be positive, and warmup steps cannot be negative."})
+        emit(
+            "error",
+            job_id,
+            {
+                "message": "Max steps must be zero or greater, epochs must be positive, and warmup steps cannot be negative."
+            },
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if batch_size < 1 or grad_accum < 1 or max_seq_length < 64:
-        emit("error", job_id, {"message": "Batch size, gradient accumulation and sequence length must be positive supported values."})
+        emit(
+            "error",
+            job_id,
+            {
+                "message": "Batch size, gradient accumulation and sequence length must be positive supported values."
+            },
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if not 0 < learning_rate < 1:
@@ -245,16 +257,30 @@ def run_worker(cfg: dict) -> int:
         emit("error", job_id, {"message": f"Unsupported optimizer: {optim!r}"})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
-    if save_strategy not in {"no", "steps", "epoch"} or eval_strategy not in {"no", "steps", "epoch"}:
-        emit("error", job_id, {"message": "Save and evaluation strategies must be no, steps, or epoch."})
+    if save_strategy not in {"no", "steps", "epoch"} or eval_strategy not in {
+        "no",
+        "steps",
+        "epoch",
+    }:
+        emit(
+            "error",
+            job_id,
+            {"message": "Save and evaluation strategies must be no, steps, or epoch."},
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if save_steps < 1 or eval_steps < 1:
-        emit("error", job_id, {"message": "Save and evaluation intervals must be at least one step."})
+        emit(
+            "error", job_id, {"message": "Save and evaluation intervals must be at least one step."}
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if eval_strategy != "no" and not eval_dataset_path_str:
-        emit("error", job_id, {"message": "An evaluation dataset is required when evaluation is enabled."})
+        emit(
+            "error",
+            job_id,
+            {"message": "An evaluation dataset is required when evaluation is enabled."},
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
 
@@ -351,11 +377,14 @@ def run_worker(cfg: dict) -> int:
         if eval_strategy != "no":
             eval_dataset = load_dataset_file(eval_dataset_path)
             if len(eval_dataset) == 0:
-                raise ValueError(f"Evaluation dataset is empty: {eval_path}")
+                raise ValueError(f"Evaluation dataset is empty: {eval_dataset_path}")
             emit(
                 "log",
                 job_id,
-                {"message": f"Loaded {len(eval_dataset)} evaluation samples from {eval_path}", "level": "info"},
+                {
+                    "message": f"Loaded {len(eval_dataset)} evaluation samples from {eval_dataset_path}",
+                    "level": "info",
+                },
             )
         progress_total_steps = max_steps or max(
             1, math.ceil(len(train_dataset) / (batch_size * grad_accum) * num_train_epochs)
@@ -399,7 +428,10 @@ def run_worker(cfg: dict) -> int:
                     emit(
                         "log",
                         job_id,
-                        {"message": f"Evaluation at step {step} · loss: {eval_loss:.4f}", "level": "info"},
+                        {
+                            "message": f"Evaluation at step {step} · loss: {eval_loss:.4f}",
+                            "level": "info",
+                        },
                     )
 
             def on_step_end(self, args, state, control, **kwargs):
@@ -524,7 +556,9 @@ def run_worker(cfg: dict) -> int:
             job_id,
             {
                 "fraction": 0.98,
-                "step": int(getattr(getattr(trainer, "state", None), "global_step", progress_total_steps)),
+                "step": int(
+                    getattr(getattr(trainer, "state", None), "global_step", progress_total_steps)
+                ),
                 "total": progress_total_steps,
             },
         )
@@ -574,7 +608,11 @@ def run_worker(cfg: dict) -> int:
         if was_cancelled:
             emit("job_complete", job_id, {"success": False, "exit_code": 130, "cancelled": True})
             return 130
-        emit("progress", job_id, {"fraction": 1.0, "step": progress_total_steps, "total": progress_total_steps})
+        emit(
+            "progress",
+            job_id,
+            {"fraction": 1.0, "step": progress_total_steps, "total": progress_total_steps},
+        )
         emit("job_complete", job_id, {"success": True, "exit_code": 0})
         return 0
 
