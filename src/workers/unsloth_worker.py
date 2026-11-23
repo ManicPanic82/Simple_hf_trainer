@@ -18,7 +18,10 @@ import time
 import traceback
 from pathlib import Path
 
-from package_metadata import write_training_package
+try:
+    from .package_metadata import write_training_package
+except ImportError:  # Running this file directly as an isolated worker script.
+    from package_metadata import write_training_package
 
 # stdout is reserved for the JSON-lines protocol. Engine libraries print their
 # own banners and progress to sys.stdout, so keep a private handle to the real
@@ -636,7 +639,18 @@ def run_worker(cfg: dict) -> int:
             },
         )
 
-        artifacts = [p.name for p in output_dir.iterdir() if p.is_file()]
+        package_metadata_names = {
+            "README.md",
+            "package_manifest.json",
+            "training_config.json",
+            "training_metrics.json",
+            "training_summary.json",
+        }
+        artifacts = [
+            p.name
+            for p in output_dir.iterdir()
+            if p.is_file() and p.name not in package_metadata_names
+        ]
         emit(
             "result",
             job_id,
