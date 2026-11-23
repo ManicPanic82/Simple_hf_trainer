@@ -94,13 +94,13 @@ def test_default_preview_returns_up_to_100_rows_for_supported_formats(tmp_path: 
 
     jsonl_path = tmp_path / "preview.jsonl"
     jsonl_path.write_text(
-        "".join(json.dumps(record) + "\\n" for record in records), encoding="utf-8"
+        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
     )
     json_path = tmp_path / "preview.json"
     json_path.write_text(json.dumps(records), encoding="utf-8")
     csv_path = tmp_path / "preview.csv"
     csv_path.write_text(
-        "text\\n" + "".join(f"sample {index}\\n" for index in range(125)), encoding="utf-8"
+        "text\n" + "".join(f"sample {index}\n" for index in range(125)), encoding="utf-8"
     )
 
     for path in (jsonl_path, json_path, csv_path):
