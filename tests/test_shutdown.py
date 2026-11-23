@@ -175,14 +175,16 @@ def test_models_tab_request_shutdown_cancels_download_and_joins_threads() -> Non
     download = MagicMock()
     search = MagicMock()
     info = MagicMock()
+    scan = MagicMock()
     tab._download_worker = download
     tab._search_worker = search
+    tab._scan_worker = scan
     tab._info_workers = [info]
 
     ModelsTab.request_shutdown(tab)
 
     download.cancel.assert_called_once_with()
-    for worker in (download, search, info):
+    for worker in (download, search, scan, info):
         worker.requestInterruption.assert_called_once_with()
         worker.quit.assert_called_once_with()
         worker.wait.assert_called_once_with(500)
@@ -194,12 +196,14 @@ def test_datasets_tab_request_shutdown_joins_threads() -> None:
     tab = DatasetsTab.__new__(DatasetsTab)
     search = MagicMock()
     download = MagicMock()
+    scan = MagicMock()
     tab._search_worker = search
     tab._download_worker = download
+    tab._scan_worker = scan
 
     DatasetsTab.request_shutdown(tab)
 
-    for worker in (search, download):
+    for worker in (search, download, scan):
         worker.requestInterruption.assert_called_once_with()
         worker.quit.assert_called_once_with()
         worker.wait.assert_called_once_with(500)
