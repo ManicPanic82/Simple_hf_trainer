@@ -235,8 +235,8 @@ class MainWindow(QMainWindow):
         """Begin background monitoring. Called once the window is shown."""
         self.context.monitor.start()
         self.context.registry.refresh_async()
-        self.models_tab.scan_library()
-        self.datasets_tab.scan_datasets()
+        QTimer.singleShot(0, self.models_tab.scan_library)
+        # Dataset scan is scheduled after the window is created (see _build_layout).
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         if not getattr(self, "_force_close", False) and self._workers_running():
