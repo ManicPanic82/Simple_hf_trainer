@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
 
@@ -157,6 +158,11 @@ class TrainingDashboard(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._values: dict[str, str] = {}
+        self._started_at: float | None = None
+        self._progress_fraction: float | None = None
+        self._clock = QTimer(self)
+        self._clock.setInterval(1000)
+        self._clock.timeout.connect(self._update_clock)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
@@ -168,7 +174,7 @@ class TrainingDashboard(QWidget):
             ("epoch", "Epoch"), ("learning_rate", "Learning rate"),
             ("grad_norm", "Gradient norm"), ("tokens_per_second", "Tokens/sec"),
             ("gpu_utilization", "GPU utilisation"), ("gpu_memory", "GPU memory"),
-            ("ram", "System RAM"),
+            ("ram", "System RAM"), ("elapsed", "Elapsed"), ("remaining", "Est. remaining"),
         )):
             label = QLabel(f"{title}: —", self)
             label.setObjectName("StripValue")
@@ -199,15 +205,52 @@ class TrainingDashboard(QWidget):
         root.addWidget(self.architecture_title)
         self.architecture = ArchitectureView(self)
         root.addWidget(self.architecture)
+        self.architecture_details = QLabel(
+            "Layer dimensions and adapter targets are reported by the loaded model.", self
+        )
+        self.architecture_details.setObjectName("Muted")
+        self.architecture_details.setWordWrap(True)
+        root.addWidget(self.architecture_details)
 
     def reset(self) -> None:
-        self._values.clear()
+        self._clock.stop()
+        self._started_at = None
+        self._progress_fraction = None
         for key, label in self.stat_labels.items():
             title = label.text().split(":", 1)[0]
             label.setText(f"{title}: —")
         self.loss_chart.clear()
         self.lr_chart.clear()
         self.architecture.clear()
+        self.architecture_title.setText("Loaded model architecture")
+        self.architecture_details.setText("Layer dimensions and adapter targets are reported by the loaded model.")
+
+    def begin_run(self) -> None:
+        self._started_at = time.monotonic()
+        self._progress_fraction = 0.0
+        self._clock.start()
+        self._update_clock()
+
+    def set_progress(self, fraction: float) -> None:
+        self._progress_fraction = max(0.0, min(1.0, float(fraction)))
+        self._update_clock()
+
+    def _update_clock(self) -> None:
+        if self._started_at is None:
+            return
+        elapsed = max(0.0, time.monotonic() - self._started_at)
+        self.stat_labels["elapsed"].setText(f"Elapsed: {self._format_duration(elapsed)}")
+        fraction = self._progress_fraction
+        remaining = elapsed * (1.0 - fraction) / fraction if fraction and fraction > 0 else None
+        estimate = self._format_duration(remaining) if remaining is not None else "—"
+        self.stat_labels["remaining"].setText(f"Est. remaining: {estimate}")
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        total = max(0, int(seconds))
+        hours, remainder = divmod(total, 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:d}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
 
     def set_architecture(self, metadata: dict) -> None:
         self.architecture.set_architecture(metadata)
@@ -216,6 +259,12 @@ class TrainingDashboard(QWidget):
         self.architecture_title.setText(
             f"Loaded architecture · {model_type}" + (f" · {layers} layers" if layers else "")
         )
+        detail_keys = ("hidden_size", "num_attention_heads", "num_key_value_heads",
+                       "intermediate_size", "max_position_embeddings", "lora_rank",
+                       "lora_alpha", "target_modules", "precision")
+        details = [f"{key.replace('_', ' ')}: {metadata[key]}"
+                   for key in detail_keys if metadata.get(key) is not None]
+        self.architecture_details.setText("   ·   ".join(details) or "Architecture metadata received.")
 
     def add_metric(self, name: str, step: int, value: float) -> None:
         if not math.isfinite(value):
