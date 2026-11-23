@@ -124,6 +124,7 @@ class OutputInterceptor:
         self.total_trials = max(1, total_trials)
         self.real_stdout = real_stdout
         self.current_trial = 0
+        self.metrics: list[dict] = []
         # Heretic writes through several buffered streams. A write can end in
         # the middle of a line, so complete lines are assembled here instead of
         # treating every write as a whole line.
@@ -176,15 +177,13 @@ class OutputInterceptor:
             raw_value = score_match.group(2).strip()
             value = _score_value(name, raw_value)
             if value is not None and _is_score_line(name):
-                emit(
-                    "metric",
-                    self.job_id,
-                    {
-                        "name": _score_name(name),
-                        "value": value,
-                        "step": self.current_trial,
-                    },
-                )
+                metric = {
+                    "name": _score_name(name),
+                    "value": value,
+                    "step": self.current_trial,
+                }
+                self.metrics.append(metric)
+                emit("metric", self.job_id, metric)
 
         # Preserve the original line text; the GUI adds timestamps and colours.
         emit("log", self.job_id, {"message": line, "level": "info", "stream": "stdout"})
@@ -384,6 +383,13 @@ column = "text"
                     "heretic_version": version,
                     "export_strategy": export_strategy,
                     "trials": trials,
+                },
+                metrics=interceptor.metrics,
+                summary={
+                    "status": "completed",
+                    "trials": trials,
+                    "export_strategy": export_strategy,
+                    "model_action": model_action,
                 },
             )
             emit(
