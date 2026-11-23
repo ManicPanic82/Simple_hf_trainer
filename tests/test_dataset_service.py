@@ -34,7 +34,8 @@ def test_inspect_dataset_file(tmp_path: Path):
 def test_lightweight_dataset_inspection_skips_full_row_count(tmp_path: Path):
     jsonl_file = tmp_path / "large.jsonl"
     jsonl_file.write_text(
-        '{"instruction":"first","output":"one"}\n{"instruction":"second","output":"two"}\n',
+        '{"instruction":"first","output":"one"}\n'
+        '{"instruction":"second","output":"two"}\n',
         encoding="utf-8",
     )
 

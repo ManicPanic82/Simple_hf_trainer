@@ -66,11 +66,10 @@ def _tab(tmp_path: Path, rec: LocalDatasetRecord, *, valid: bool = True) -> Data
         service,
         scan_on_init=False,
     )
-    # Populate the table directly: these tests cover split selection, not
-    # the asynchronous local-dataset discovery worker.
     tab._on_local_scan_results([rec])
     tab.local_table.selectRow(0)
     return tab
+
 
 def _two_split_dir(tmp_path: Path) -> tuple[Path, Path, Path]:
     data_dir = tmp_path / "datasets" / "org--data"
@@ -148,7 +147,13 @@ def test_invalid_split_updates_readiness_pill(qapp, tmp_path) -> None:
         return result
 
     service.preview_dataset.side_effect = preview
-    tab = DatasetsTab(AppState(), StorageService(_settings(tmp_path)), service)
+    tab = DatasetsTab(
+        AppState(),
+        StorageService(_settings(tmp_path)),
+        service,
+        scan_on_init=False,
+    )
+    tab._on_local_scan_results([_record(train)])
     tab.local_table.selectRow(0)
     tab.split_combo.setCurrentIndex(_split_index(tab, test))
 
