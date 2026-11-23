@@ -54,6 +54,23 @@ class DatasetSearchWorker(QThread):
             self.search_failed.emit(str(error))
 
 
+class LocalDatasetScanWorker(QThread):
+    """Discover local datasets without blocking the Qt event loop."""
+
+    results_ready = Signal(list)
+    scan_failed = Signal(str)
+
+    def __init__(self, service: DatasetService, parent=None):
+        super().__init__(parent)
+        self.service = service
+
+    def run(self) -> None:
+        try:
+            self.results_ready.emit(self.service.scan_local_datasets())
+        except Exception as error:
+            self.scan_failed.emit(str(error))
+
+
 class DatasetDownloadWorker(QThread):
     """Background worker that imports a Hub dataset snapshot into the local library."""
 
@@ -107,6 +124,7 @@ class DatasetsTab(TabPage):
         self._storage = storage
         self._service = dataset_service or DatasetService(storage)
         self._search_worker: DatasetSearchWorker | None = None
+        self._scan_worker: LocalDatasetScanWorker | None = None
         self._download_worker: DatasetDownloadWorker | None = None
         self._selected_hub_dataset: HubDatasetRecord | None = None
         self._selected_local_dataset: LocalDatasetRecord | None = None
@@ -404,7 +422,19 @@ class DatasetsTab(TabPage):
     # --- Local Datasets ---
 
     def scan_datasets(self) -> None:
-        records = self._service.scan_local_datasets()
+        """Start a background scan; only update widgets from the result slot."""
+        worker = self._scan_worker
+        if worker is not None and worker.isRunning():
+            return
+        self.scan_button.setEnabled(False)
+        self.local_pill.set_state("warn", "Scanning…")
+        self._scan_worker = LocalDatasetScanWorker(self._service, self)
+        self._scan_worker.results_ready.connect(self._on_local_scan_results)
+        self._scan_worker.scan_failed.connect(self._on_local_scan_failed)
+        self._scan_worker.finished.connect(self._on_local_scan_finished)
+        self._scan_worker.start()
+
+    def _on_local_scan_results(self, records: list[LocalDatasetRecord]) -> None:
         self._local_datasets = records
         self.local_table.setRowCount(len(records))
         for row, rec in enumerate(records):
@@ -420,6 +450,14 @@ class DatasetsTab(TabPage):
 
         self.local_pill.set_state("ok" if records else "off", f"{len(records)} datasets")
         self._state.publish_datasets(records)
+
+    def _on_local_scan_failed(self, error: str) -> None:
+        self.local_pill.set_state("error", "Scan failed")
+        self._state.notify("error", f"Local dataset scan failed: {error}")
+
+    def _on_local_scan_finished(self) -> None:
+        self.scan_button.setEnabled(True)
+        self._scan_worker = None
 
     @staticmethod
     def _candidate_data_files(path: Path) -> list[Path]:
