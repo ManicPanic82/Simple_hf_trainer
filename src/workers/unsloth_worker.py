@@ -18,6 +18,8 @@ import time
 import traceback
 from pathlib import Path
 
+from package_metadata import write_training_package
+
 # stdout is reserved for the JSON-lines protocol. Engine libraries print their
 # own banners and progress to sys.stdout, so keep a private handle to the real
 # protocol stream before any engine import can replace or wrap sys.stdout.
@@ -402,10 +404,22 @@ def run_worker(cfg: dict) -> int:
         from transformers import TrainerCallback
         from trl import SFTConfig, SFTTrainer
 
+        metrics_history: list[dict] = []
+
         class ProtocolCallback(TrainerCallback):
             def on_log(self, args, state, control, logs=None, **kwargs):
                 if not logs:
                     return
+                metric_record = {"step": int(state.global_step)}
+                for key, value in logs.items():
+                    try:
+                        numeric_value = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(numeric_value):
+                        metric_record[str(key)] = numeric_value
+                if len(metric_record) > 1:
+                    metrics_history.append(metric_record)
                 step = int(state.global_step)
                 if "loss" in logs:
                     loss_val = float(logs["loss"])
@@ -592,6 +606,35 @@ def run_worker(cfg: dict) -> int:
             print("[checkpoint] Adapter saved", file=sys.stderr, flush=True)
             tokenizer.save_pretrained(str(output_dir))
             print("[checkpoint] Tokenizer saved", file=sys.stderr, flush=True)
+
+        package_summary = {
+            "status": "cancelled" if was_cancelled else "completed",
+            "final_loss": final_loss if math.isfinite(final_loss) else None,
+            "elapsed_seconds": elapsed,
+            "global_step": int(
+                getattr(getattr(trainer, "state", None), "global_step", 0)
+            ),
+            "training_rows": len(train_dataset),
+            "evaluation_rows": len(eval_dataset) if eval_dataset is not None else None,
+            "engine": "unsloth",
+            "engine_version": engine_version,
+        }
+        write_training_package(
+            output_dir=output_dir,
+            config=cfg,
+            metrics=metrics_history,
+            summary=package_summary,
+            train_dataset=dataset_path,
+            eval_dataset=eval_dataset_path,
+        )
+        emit(
+            "log",
+            job_id,
+            {
+                "message": "Archived training/evaluation datasets and wrote model provenance files.",
+                "level": "info",
+            },
+        )
 
         artifacts = [p.name for p in output_dir.iterdir() if p.is_file()]
         emit(
