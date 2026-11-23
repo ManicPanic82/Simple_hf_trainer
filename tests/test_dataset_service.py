@@ -11,7 +11,6 @@ from services.settings_service import AppSettings, PathSettings
 from services.storage_service import StorageService
 
 
-
 def test_inspect_dataset_file(tmp_path: Path):
     jsonl_file = tmp_path / "sample.jsonl"
     rows = [
@@ -30,7 +29,6 @@ def test_inspect_dataset_file(tmp_path: Path):
     assert "instruction" in rec.columns
     assert "output" in rec.columns
     assert rec.is_prepared is True
-
 
 
 def test_lightweight_dataset_inspection_skips_full_row_count(tmp_path: Path):
@@ -64,7 +62,6 @@ def test_lightweight_dataset_inspection_skips_full_row_count(tmp_path: Path):
     assert json_record.columns == ["text"]
 
 
-
 def test_preview_dataset_and_validation(tmp_path: Path):
     service = DatasetService(StorageService(AppSettings()))
 
@@ -91,7 +88,6 @@ def test_preview_dataset_and_validation(tmp_path: Path):
     assert "Needs preparation" in raw_preview.validation_message
 
 
-
 def test_prepare_dataset(tmp_path: Path):
     service = DatasetService(StorageService(AppSettings()))
 
@@ -115,7 +111,6 @@ def test_prepare_dataset(tmp_path: Path):
     assert data["input"] == "code"
     assert data["output"] == "A language"
     assert "### Instruction:\nWhat is Python?" in data["text"]
-
 
 
 def test_search_hub_datasets_mocked(tmp_path: Path, monkeypatch):
@@ -144,7 +139,6 @@ def test_search_hub_datasets_mocked(tmp_path: Path, monkeypatch):
     assert results[0].repo_id == "tatsu-lab/alpaca"
     assert results[0].author == "tatsu-lab"
     assert results[0].downloads == 250000
-
 
 
 def test_arrow_dataset_inspection_preview_and_preparation(tmp_path: Path):
@@ -184,7 +178,6 @@ def test_arrow_dataset_inspection_preview_and_preparation(tmp_path: Path):
     records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 2
     assert records[0]["output"] == "4"
-
 
 
 def test_prepare_dataset_rejects_missing_selected_columns(tmp_path: Path):
