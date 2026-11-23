@@ -31,6 +31,9 @@ def _run_with_export(
     class FakeModel:
         def save_pretrained(self, path):
             events.append("adapter_saved")
+            target = Path(path)
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "adapter_model.safetensors").write_bytes(b"adapter weights")
 
         def save_pretrained_merged(self, path, tokenizer, save_method="merged_16bit"):
             events.append(f"merged:{save_method}")
@@ -39,6 +42,7 @@ def _run_with_export(
             (target / "config.json").write_text(
                 json.dumps({"model_type": "qwen3"}), encoding="utf-8"
             )
+            (target / "model.safetensors").write_bytes(b"merged weights")
 
     class FakeTokenizer:
         def save_pretrained(self, path):
