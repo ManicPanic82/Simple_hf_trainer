@@ -302,7 +302,9 @@ def run_worker(cfg: dict) -> int:
                 raise ValueError("Training and evaluation datasets must be different files.")
         original_dataset_path = dataset_path
         original_eval_dataset_path = eval_dataset_path
-        dataset_snapshot, dataset_path, eval_dataset_path = snapshot_training_datasets(
+        output_dir.mkdir(parents=True, exist_ok=True)
+        dataset_path, eval_dataset_path = snapshot_training_datasets(
+            output_dir,
             dataset_path,
             eval_dataset_path,
         )
@@ -649,7 +651,6 @@ def run_worker(cfg: dict) -> int:
             train_dataset_source=original_dataset_path,
             eval_dataset_source=original_eval_dataset_path,
         )
-        dataset_snapshot.cleanup()
         emit(
             "log",
             job_id,
