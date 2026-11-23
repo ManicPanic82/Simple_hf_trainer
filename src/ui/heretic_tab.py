@@ -716,9 +716,9 @@ class HereticTab(TabPage):
         section = CollapsibleSection(
             "Output & provenance",
             subtitle=(
-                "The modified model is written to a separate destination. A run.json "
-                "record stores the source model, installed Heretic version, starting "
-                "profile, execution settings and the exact config.toml."
+                "The modified model is written to a separate destination. Its package "
+                "includes the exact config.toml, run provenance, dataset references, "
+                "local prompt files when applicable, metrics and a README."
             ),
             expanded=True,
             parent=self._left_content,
