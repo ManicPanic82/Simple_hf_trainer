@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 
 from PySide6.QtWidgets import QDialog
 
@@ -15,9 +16,9 @@ from services.settings_service import (
     SettingsService,
 )
 from services.storage_service import StorageService
-from ui.datasets_tab import DatasetsTab
+from ui.datasets_tab import DatasetsTab, LocalDatasetScanWorker
 from ui.heretic_tab import HereticTab
-from ui.models_tab import ModelInfoWorker, ModelsTab
+from ui.models_tab import LocalModelScanWorker, ModelInfoWorker, ModelsTab
 from ui.settings_dialog import SettingsDialog
 from ui.training_tab import TrainingTab
 from workers.protocol import MessageType, WorkerMessage
@@ -203,6 +204,38 @@ def test_model_info_lookup_runs_in_background(qapp, wait_for) -> None:
     finally:
         worker.wait(5_000)
 
+
+
+def test_local_discovery_workers_run_outside_the_gui_thread(qapp, wait_for) -> None:
+    gui_thread_id = threading.get_ident()
+    model_threads: list[int] = []
+    dataset_threads: list[int] = []
+
+    class ModelServiceStub:
+        def scan_local_models(self):
+            model_threads.append(threading.get_ident())
+            return []
+
+    class DatasetServiceStub:
+        def scan_local_datasets(self):
+            dataset_threads.append(threading.get_ident())
+            return []
+
+    model_worker = LocalModelScanWorker(ModelServiceStub())
+    dataset_worker = LocalDatasetScanWorker(DatasetServiceStub())
+    model_worker.start()
+    dataset_worker.start()
+    try:
+        assert wait_for(
+            lambda: bool(model_threads) and bool(dataset_threads),
+            timeout_ms=5_000,
+        )
+    finally:
+        model_worker.wait(5_000)
+        dataset_worker.wait(5_000)
+
+    assert model_threads[0] != gui_thread_id
+    assert dataset_threads[0] != gui_thread_id
 
 def test_training_job_keeps_gpu_lock_until_process_exit(qapp, tmp_path: Path) -> None:
     settings = settings_with(
