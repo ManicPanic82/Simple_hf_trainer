@@ -125,6 +125,7 @@ class DatasetsTab(TabPage):
         self._service = dataset_service or DatasetService(storage)
         self._search_worker: DatasetSearchWorker | None = None
         self._scan_worker: LocalDatasetScanWorker | None = None
+        self._scan_pending = False
         self._download_worker: DatasetDownloadWorker | None = None
         self._selected_hub_dataset: HubDatasetRecord | None = None
         self._selected_local_dataset: LocalDatasetRecord | None = None
@@ -425,6 +426,7 @@ class DatasetsTab(TabPage):
         """Start a background scan; only update widgets from the result slot."""
         worker = self._scan_worker
         if worker is not None and worker.isRunning():
+            self._scan_pending = True
             return
         self.scan_button.setEnabled(False)
         self.local_pill.set_state("warn", "Scanning…")
@@ -458,6 +460,9 @@ class DatasetsTab(TabPage):
     def _on_local_scan_finished(self) -> None:
         self.scan_button.setEnabled(True)
         self._scan_worker = None
+        if self._scan_pending:
+            self._scan_pending = False
+            self.scan_datasets()
 
     @staticmethod
     def _candidate_data_files(path: Path) -> list[Path]:
