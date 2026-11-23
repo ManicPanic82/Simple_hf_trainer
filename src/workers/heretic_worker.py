@@ -386,7 +386,6 @@ column = "text"
                     "trials": trials,
                 },
             )
-            artifacts = [p.name for p in output_dir.iterdir() if p.is_file()]
             emit(
                 "log",
                 job_id,
