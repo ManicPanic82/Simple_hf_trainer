@@ -9,9 +9,9 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import inspect
 import math
 import os
-import inspect
 import sys
 import threading
 import time
