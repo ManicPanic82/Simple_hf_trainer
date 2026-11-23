@@ -60,6 +60,9 @@ def test_generated_toml_is_passed_verbatim_to_engine(monkeypatch, tmp_path: Path
     assert complete[-1][2]["success"] is True
     result = [entry for entry in emitted if entry[0] == "result"]
     assert result[-1][2]["artifacts"] == ["model.safetensors"]
+    assert (tmp_path / "out" / "config.toml").read_text(encoding="utf-8") == text
+    assert (tmp_path / "out" / "training_data" / "dataset_manifest.json").is_file()
+    assert (tmp_path / "out" / "heretic_summary.json").is_file()
 
 
 def test_missing_saved_model_is_reported_as_failure(monkeypatch, tmp_path: Path) -> None:
