@@ -329,7 +329,9 @@ class TrainingTab(TabPage):
             source_path = source.resolve()
             output_root = self._storage.path_for("outputs_dir").resolve()
         except OSError as error:
-            return f"Cannot verify that the training output is separate from the source model: {error}"
+            return (
+                f"Cannot verify that the training output is separate from the source model: {error}"
+            )
         if output_root == source_path or source_path in output_root.parents:
             return (
                 "The training outputs folder is inside the selected source model. "
@@ -340,9 +342,7 @@ class TrainingTab(TabPage):
     @staticmethod
     def _resolve_output_model_name(model_name: str, requested_name: str) -> str:
         """Return a safe single Windows folder name for a merged model export."""
-        source_name = (
-            str(model_name).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
-        )
+        source_name = str(model_name).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
         name = requested_name.strip() or f"{source_name or 'model'}-finetuned"
         invalid = '<>:"/\\|?*'
         reserved = {
@@ -528,9 +528,7 @@ class TrainingTab(TabPage):
             return
         if self.export_combo.currentData() == "merged_16bit":
             try:
-                self._resolve_output_model_name(
-                    str(model_name), self.output_model_name_edit.text()
-                )
+                self._resolve_output_model_name(str(model_name), self.output_model_name_edit.text())
             except ValueError as error:
                 self._state.notify("error", str(error))
                 return
