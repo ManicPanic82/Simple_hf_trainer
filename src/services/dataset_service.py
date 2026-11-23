@@ -106,9 +106,12 @@ def inspect_dataset_file(
                         for idx, line in enumerate(f):
                             count += 1
                             if idx == 0:
-                                obj = json.loads(line)
-                                if isinstance(obj, dict):
-                                    columns = list(obj.keys())
+                                try:
+                                    obj = json.loads(line)
+                                    if isinstance(obj, dict):
+                                        columns = list(obj.keys())
+                                except ValueError:
+                                    pass
                         row_count = count
             except (OSError, ValueError):
                 pass
