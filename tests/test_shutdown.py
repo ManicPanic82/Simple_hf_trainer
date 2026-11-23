@@ -66,7 +66,7 @@ def test_start_schedules_both_initial_discovery_scans(window: MainWindow) -> Non
     assert window._models_scan_timer.isActive()
     assert window._datasets_scan_timer.isActive()
 
-    window.closeEvent(_close_event())
+    window.closeEvent(QCloseEvent())
     assert not window._models_scan_timer.isActive()
     assert not window._datasets_scan_timer.isActive()
 
