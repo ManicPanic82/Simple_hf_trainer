@@ -194,6 +194,22 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     assert not tab.output_model_name_edit.isEnabled()
 
 
+def test_training_rejects_output_folder_nested_in_source_model(qapp, tmp_path: Path) -> None:
+    tab = _make_tab(
+        tmp_path,
+        job_manager=MagicMock(),
+        model_service=MagicMock(),
+        state=MagicMock(),
+    )
+    source = tmp_path / "source-model"
+    source.mkdir()
+    tab._storage.path_for.return_value = source / "outputs"
+
+    assert "inside the selected source model" in tab._validate_training_output_root(str(source))
+    tab._storage.path_for.return_value = tmp_path / "separate-outputs"
+    assert tab._validate_training_output_root(str(source)) is None
+
+
 def test_merged_model_name_defaults_from_source_and_rejects_unsafe_names(
     qapp, tmp_path: Path
 ) -> None:

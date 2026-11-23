@@ -320,6 +320,23 @@ class TrainingTab(TabPage):
             else "Adapter-only exports keep their job folder name."
         )
 
+    def _validate_training_output_root(self, model_name: str) -> str | None:
+        """Prevent a configured output folder from being nested inside the source model."""
+        source = Path(str(model_name))
+        if not source.is_dir():
+            return None
+        try:
+            source_path = source.resolve()
+            output_root = self._storage.path_for("outputs_dir").resolve()
+        except OSError as error:
+            return f"Cannot verify that the training output is separate from the source model: {error}"
+        if output_root == source_path or source_path in output_root.parents:
+            return (
+                "The training outputs folder is inside the selected source model. "
+                "Choose a separate outputs folder so the original model remains untouched."
+            )
+        return None
+
     @staticmethod
     def _resolve_output_model_name(model_name: str, requested_name: str) -> str:
         """Return a safe single Windows folder name for a merged model export."""
@@ -504,6 +521,10 @@ class TrainingTab(TabPage):
             return
         if not 0 < learning_rate < 1:
             self._state.notify("error", "Learning rate must be greater than 0 and less than 1.")
+            return
+        output_safety_error = self._validate_training_output_root(str(model_name))
+        if output_safety_error:
+            self._state.notify("error", output_safety_error)
             return
         if self.export_combo.currentData() == "merged_16bit":
             try:

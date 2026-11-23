@@ -302,9 +302,7 @@ class DatasetsTab(TabPage):
 
         self.preview_table = QTableWidget(0, 0, preview)
         self.preview_table.setMaximumHeight(320)
-        self.preview_table.setToolTip(
-            "Showing up to 100 rows. Scroll to inspect the remaining preview rows."
-        )
+        self.preview_table.setToolTip("Showing up to 100 rows. Scroll to inspect the remaining preview rows.")
         preview.add(self.preview_table)
 
         action_row = QHBoxLayout()
