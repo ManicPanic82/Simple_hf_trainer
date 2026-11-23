@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QWidget
-
 from app.state import AppState
 from services.hardware_monitor import GpuStats, HardwareSnapshot
 from services.settings_service import AppSettings, PathSettings
