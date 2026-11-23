@@ -433,6 +433,7 @@ def run_worker(cfg: dict) -> int:
             "logging_steps": 1,
             "save_strategy": save_strategy,
             "save_steps": save_steps,
+            "save_total_limit": 2,
             "report_to": "none",
             "fp16": True,
             "bf16": False,
