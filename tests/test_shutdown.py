@@ -106,6 +106,25 @@ def test_worker_exit_closes_window_and_stops_timers(window: MainWindow) -> None:
     assert not window._shutdown_timeout_timer.isActive()
 
 
+
+def test_shutdown_waits_for_local_discovery_thread(window: MainWindow) -> None:
+    scan = MagicMock()
+    scan.isRunning.return_value = True
+    window.models_tab._scan_worker = scan
+
+    window.closeEvent(_close_event())
+    window._shutdown_timeout_timer.timeout.emit()
+
+    window.close.assert_not_called()
+    assert window._shutdown_timeout_timer.isActive()
+    notices = [call.args[0] for call in window.banner.show_notice.call_args_list]
+    assert any("Waiting for local library discovery" in n.message for n in notices)
+
+    scan.isRunning.return_value = False
+    window._shutdown_timer.timeout.emit()
+
+    window.close.assert_called_once_with()
+
 def test_timeout_force_stops_workers_and_closes(window: MainWindow) -> None:
     window.training_tab.worker_running = True
     window.heretic_tab.worker_running = True
