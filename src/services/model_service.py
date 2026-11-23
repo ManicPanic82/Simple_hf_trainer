@@ -128,6 +128,8 @@ def inspect_model_directory(directory: Path) -> LocalModelRecord | None:
     package_metadata_files = {
         "README.md",
         "config.toml",
+        "heretic_metrics.json",
+        "heretic_summary.json",
         "package_manifest.json",
         "run.json",
         "training_config.json",
