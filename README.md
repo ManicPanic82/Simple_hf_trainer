@@ -28,7 +28,7 @@ and the engine workflows on this branch are ahead of that original phase boundar
 | GPU-exclusive job lifecycle | Centralised lock; completion is reconciled after the child process exits |
 | Models | Hub search, background metadata lookup, download, local library and qualified memory estimates |
 | Datasets | Hub search, local inspection, preview, preparation; JSON, JSONL, CSV, Parquet and Arrow IPC |
-| Training | Unsloth LoRA/QLoRA worker with progress, metrics, dataset validation, cooperative cancellation and merged-16-bit or adapter-only export |
+| Training | Unsloth LoRA/QLoRA worker with max-step or epoch-based runs, warmup, optimizer selection, checkpoint strategy/interval, optional evaluation dataset/strategy/interval, progress, metrics, cooperative cancellation and merged-16-bit or adapter-only export |
 | Heretic | Full 2.x config UI (modifiers, scorers, presets, Raw TOML), headless worker with trial metrics and cancellation |
 
 The compatibility report records small, real engine smoke tests on the reference GTX 1660.
@@ -36,7 +36,8 @@ Those tests prove that the selected engine versions can execute minimal workload
 not prove every GUI workflow, model architecture, dataset format, export strategy, or
 long-running training configuration. See
 [`docs/COMPATIBILITY_REPORT.md`](docs/COMPATIBILITY_REPORT.md) for the exact evidence
-and its limitations.
+and its limitations. The staged completion and Windows acceptance plan is in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ### Previously recorded validation
 
