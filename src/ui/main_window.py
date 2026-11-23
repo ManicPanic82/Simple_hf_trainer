@@ -247,11 +247,19 @@ class MainWindow(QMainWindow):
         self._finalize_close(event)
 
     def _workers_running(self) -> bool:
-        """Whether either engine tab still reports a live worker process."""
-        return any(
+        """Whether an engine process or local discovery thread is still active."""
+        engine_running = any(
             bool(getattr(tab, "worker_running", False))
             for tab in (self.training_tab, self.heretic_tab)
         )
+        scan_running = any(
+            bool(worker is not None and worker.isRunning())
+            for worker in (
+                getattr(self.models_tab, "_scan_worker", None),
+                getattr(self.datasets_tab, "_scan_worker", None),
+            )
+        )
+        return engine_running or scan_running
 
     def _begin_shutdown(self) -> None:
         """Start a bounded, non-blocking shutdown of any active workers."""
@@ -302,6 +310,27 @@ class MainWindow(QMainWindow):
         """Force-stop stubborn workers, then close regardless of the outcome."""
         if getattr(self, "_shutdown_escalated", False):
             return
+
+        # Local discovery uses cooperative, non-destructive filesystem reads.
+        # Never destroy a QThread while it is still scanning: keep polling and
+        # let the scan finish before the window and its child thread are closed.
+        scan_running = any(
+            bool(worker is not None and worker.isRunning())
+            for worker in (
+                getattr(self.models_tab, "_scan_worker", None),
+                getattr(self.datasets_tab, "_scan_worker", None),
+            )
+        )
+        if scan_running:
+            self.banner.show_notice(
+                Notice(
+                    "warning",
+                    "Waiting for local library discovery to finish before closing.",
+                )
+            )
+            self._shutdown_timeout_timer.start()
+            return
+
         self._shutdown_escalated = True
         self._stop_shutdown_timers()
 
