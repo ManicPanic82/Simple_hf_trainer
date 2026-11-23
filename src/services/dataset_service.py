@@ -130,7 +130,7 @@ def inspect_dataset_file(
 
         elif fmt == "json":
             # Avoid parsing a potentially large JSON array during discovery.
-            if not lightweight:
+            if not lightweight or file_path.stat().st_size <= 1_048_576:
                 try:
                     with open(file_path, encoding="utf-8", errors="replace") as f:
                         data = json.load(f)
