@@ -27,6 +27,7 @@ from ui.console import ConsoleWidget
 from ui.engine_card import EngineCard
 from ui.storage_action import open_storage_path
 from ui.tab_page import TabPage
+from ui.training_dashboard import TrainingDashboard
 from workers.job_manager import JobManager, JobSnapshot, JobState
 from workers.protocol import MessageType, WorkerMessage
 from workers.worker_process import WorkerProcess
@@ -243,6 +244,12 @@ class TrainingTab(TabPage):
         metrics_layout.addWidget(self.eval_loss_label)
         metrics_layout.addStretch(1)
         control.add_layout(metrics_layout)
+
+        self.dashboard = TrainingDashboard(control)
+        control.add(self.dashboard)
+        self._state.hardware_changed.connect(self.dashboard.set_hardware)
+        if self._state.hardware is not None:
+            self.dashboard.set_hardware(self._state.hardware)
 
         self.progress_bar = QProgressBar(control)
         self.progress_bar.setRange(0, 100)
@@ -648,6 +655,7 @@ class TrainingTab(TabPage):
             self.step_label.setText("Step: 0")
             self.loss_label.setText("Loss: —")
             self.eval_loss_label.setText("Eval loss: —")
+            self.dashboard.reset()
 
             scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
             scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -745,22 +753,35 @@ class TrainingTab(TabPage):
             total = payload.get("total")
             if step is not None:
                 self.step_label.setText(f"Step: {step}/{total}")
+            epoch = payload.get("epoch")
+            if isinstance(epoch, (int, float)):
+                self.dashboard.add_metric("epoch", int(step or 0), float(epoch))
 
         elif msg.type is MessageType.METRIC:
             name = payload.get("name")
             val = payload.get("value")
-            if name == "loss" and val is not None:
-                self.loss_label.setText(f"Loss: {float(val):.4f}")
-            elif name == "eval_loss" and val is not None:
-                self.eval_loss_label.setText(f"Eval loss: {float(val):.4f}")
+            if val is not None:
+                value = float(val)
+                step = int(payload.get("step", 0) or 0)
+                self.dashboard.add_metric(str(name), step, value)
+                if name == "loss":
+                    self.loss_label.setText(f"Loss: {value:.4f}")
+                elif name == "eval_loss":
+                    self.eval_loss_label.setText(f"Eval loss: {value:.4f}")
 
         elif msg.type is MessageType.LOG:
             line = payload.get("message", "")
             self.console.append(str(line))
 
         elif msg.type is MessageType.RESULT:
-            out_dir = payload.get("output_dir", "")
-            self.last_adapter_row.set_value(out_dir)
+            if payload.get("kind") == "architecture":
+                metadata = payload.get("architecture")
+                if isinstance(metadata, dict):
+                    self.dashboard.set_architecture(metadata)
+            else:
+                out_dir = payload.get("output_dir", "")
+                if out_dir:
+                    self.last_adapter_row.set_value(out_dir)
 
         elif msg.type is MessageType.JOB_COMPLETE:
             success = bool(payload.get("success", False))
