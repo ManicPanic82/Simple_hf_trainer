@@ -125,10 +125,23 @@ def inspect_model_directory(directory: Path) -> LocalModelRecord | None:
     bin_files = list(directory.glob("*.bin"))
 
     total_bytes = 0
+    package_metadata_files = {
+        "README.md",
+        "config.toml",
+        "package_manifest.json",
+        "run.json",
+        "training_config.json",
+        "training_metrics.json",
+        "training_summary.json",
+    }
     for child in directory.rglob("*"):
-        if child.is_file():
-            with contextlib.suppress(OSError):
-                total_bytes += child.stat().st_size
+        if not child.is_file():
+            continue
+        relative_parts = child.relative_to(directory).parts
+        if child.name in package_metadata_files or "training_data" in relative_parts:
+            continue
+        with contextlib.suppress(OSError):
+            total_bytes += child.stat().st_size
     size_mb = round(total_bytes / (1024 * 1024), 1)
 
     # 1. Check if it's a LoRA adapter
