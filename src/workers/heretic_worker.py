@@ -18,7 +18,10 @@ import threading
 import traceback
 from pathlib import Path
 
-from package_metadata import write_heretic_package
+try:
+    from .package_metadata import write_heretic_package
+except ImportError:  # Running this file directly as an isolated worker script.
+    from package_metadata import write_heretic_package
 
 # stdout is reserved for the JSON-lines protocol. OutputInterceptor replaces
 # sys.stdout while Heretic runs, so keep a private handle to the real stream;
