@@ -397,7 +397,7 @@ def run_worker(cfg: dict) -> int:
             "target_modules": target_modules,
             "precision": "4-bit base + LoRA adapters",
         }
-        emit("result", job_id, {"kind": "architecture", "architecture": architecture})
+        emit("architecture", job_id, {"architecture": architecture})
         emit(
             "log",
             job_id,
