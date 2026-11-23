@@ -144,7 +144,7 @@ def test_training_settings_reach_sft_config_and_evaluation_dataset(
 ) -> None:
     events: list[str] = []
     eval_dataset = tmp_path / "eval.jsonl"
-    eval_dataset.write_text('{"text":"evaluation sample"}\\n', encoding="utf-8")
+    eval_dataset.write_text('{"text":"evaluation sample"}\n', encoding="utf-8")
     rc, emitted, captured = _run_with_export(
         monkeypatch,
         tmp_path,
