@@ -19,9 +19,9 @@ import traceback
 from pathlib import Path
 
 try:
-    from .package_metadata import write_training_package
+    from .package_metadata import snapshot_training_datasets, write_training_package
 except ImportError:  # Running this file directly as an isolated worker script.
-    from package_metadata import write_training_package
+    from package_metadata import snapshot_training_datasets, write_training_package
 
 # stdout is reserved for the JSON-lines protocol. Engine libraries print their
 # own banners and progress to sys.stdout, so keep a private handle to the real
@@ -300,12 +300,18 @@ def run_worker(cfg: dict) -> int:
             eval_dataset_path = validate_dataset_path(eval_dataset_path_str)
             if eval_dataset_path.resolve() == dataset_path.resolve():
                 raise ValueError("Training and evaluation datasets must be different files.")
+        original_dataset_path = dataset_path
+        original_eval_dataset_path = eval_dataset_path
+        dataset_snapshot, dataset_path, eval_dataset_path = snapshot_training_datasets(
+            dataset_path,
+            eval_dataset_path,
+        )
         print(
-            f"[checkpoint] Dataset validated: {dataset_path}",
+            f"[checkpoint] Dataset snapshot ready: {dataset_path}",
             file=sys.stderr,
             flush=True,
         )
-    except (ValueError, FileNotFoundError) as error:
+    except (ValueError, OSError) as error:
         emit("error", job_id, {"message": str(error)})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
@@ -640,7 +646,10 @@ def run_worker(cfg: dict) -> int:
             summary=package_summary,
             train_dataset=dataset_path,
             eval_dataset=eval_dataset_path,
+            train_dataset_source=original_dataset_path,
+            eval_dataset_source=original_eval_dataset_path,
         )
+        dataset_snapshot.cleanup()
         emit(
             "log",
             job_id,
