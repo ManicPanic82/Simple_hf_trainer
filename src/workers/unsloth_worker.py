@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import os
+import inspect
 import sys
 import threading
 import time
@@ -172,6 +174,23 @@ def create_sft_config(config_class, config_kwargs: dict, max_seq_length: int):
     ) from last_error
 
 
+def evaluation_strategy_argument(config_class) -> str:
+    """Select the evaluation-strategy spelling supported by this Transformers version."""
+    try:
+        parameters = inspect.signature(config_class).parameters
+    except (TypeError, ValueError):
+        return "eval_strategy"
+    if "eval_strategy" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+    ):
+        return "eval_strategy"
+    if "evaluation_strategy" in parameters:
+        return "evaluation_strategy"
+    raise RuntimeError(
+        "Installed TRL SFTConfig exposes neither eval_strategy nor evaluation_strategy."
+    )
+
+
 def run_worker(cfg: dict) -> int:
     # Unsloth/torch/transformers write human-readable banners and progress to
     # stdout. Route that chatter to stderr (the host's log channel) so stdout
@@ -183,12 +202,20 @@ def run_worker(cfg: dict) -> int:
     dataset_path_str = cfg.get("dataset_path", "")
     output_dir = Path(cfg.get("output_dir", "outputs/lora_adapter")).resolve()
     max_steps = int(cfg.get("max_steps", 5))
+    num_train_epochs = float(cfg.get("num_train_epochs", 3))
+    warmup_steps = int(cfg.get("warmup_steps", 0))
     max_seq_length = int(cfg.get("max_seq_length", 256))
     learning_rate = float(cfg.get("learning_rate", 2e-4))
     batch_size = int(cfg.get("batch_size", 1))
     grad_accum = int(cfg.get("gradient_accumulation_steps", 1))
     lora_r = int(cfg.get("lora_r", 8))
     lora_alpha = int(cfg.get("lora_alpha", 16))
+    optim = str(cfg.get("optim", "adamw_8bit"))
+    save_strategy = str(cfg.get("save_strategy", "no"))
+    save_steps = int(cfg.get("save_steps", 50))
+    eval_strategy = str(cfg.get("eval_strategy", "no"))
+    eval_steps = int(cfg.get("eval_steps", 50))
+    eval_dataset_path_str = cfg.get("eval_dataset_path")
     # "merged_16bit" bakes the LoRA weights into a full fp16 model that can be
     # selected as the base for a later continued-training job. "adapter" keeps
     # the small PEFT adapter only (the previous behaviour).
@@ -199,6 +226,35 @@ def run_worker(cfg: dict) -> int:
             job_id,
             {"message": f"Unsupported export_strategy: {export_strategy!r}"},
         )
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+
+    if max_steps < 0 or num_train_epochs <= 0 or warmup_steps < 0:
+        emit("error", job_id, {"message": "Max steps must be zero or greater, epochs must be positive, and warmup steps cannot be negative."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if batch_size < 1 or grad_accum < 1 or max_seq_length < 64:
+        emit("error", job_id, {"message": "Batch size, gradient accumulation and sequence length must be positive supported values."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if not 0 < learning_rate < 1:
+        emit("error", job_id, {"message": "Learning rate must be greater than 0 and less than 1."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if optim not in {"adamw_8bit", "adamw_torch", "paged_adamw_8bit"}:
+        emit("error", job_id, {"message": f"Unsupported optimizer: {optim!r}"})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if save_strategy not in {"no", "steps", "epoch"} or eval_strategy not in {"no", "steps", "epoch"}:
+        emit("error", job_id, {"message": "Save and evaluation strategies must be no, steps, or epoch."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if save_steps < 1 or eval_steps < 1:
+        emit("error", job_id, {"message": "Save and evaluation intervals must be at least one step."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if eval_strategy != "no" and not eval_dataset_path_str:
+        emit("error", job_id, {"message": "An evaluation dataset is required when evaluation is enabled."})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
 
@@ -286,11 +342,27 @@ def run_worker(cfg: dict) -> int:
         )
         if len(train_dataset) == 0:
             raise ValueError(f"Training dataset is empty: {dataset_path}")
+        eval_dataset = None
+        if eval_strategy != "no":
+            eval_path = validate_dataset_path(eval_dataset_path_str)
+            if eval_path.resolve() == dataset_path.resolve():
+                raise ValueError("Training and evaluation datasets must be different files.")
+            eval_dataset = load_dataset_file(eval_path)
+            if len(eval_dataset) == 0:
+                raise ValueError(f"Evaluation dataset is empty: {eval_path}")
+            emit(
+                "log",
+                job_id,
+                {"message": f"Loaded {len(eval_dataset)} evaluation samples from {eval_path}", "level": "info"},
+            )
+        progress_total_steps = max_steps or max(
+            1, math.ceil(len(train_dataset) / (batch_size * grad_accum) * num_train_epochs)
+        )
         emit(
             "log",
             job_id,
             {
-                "message": f"Loaded {len(train_dataset)} samples from {dataset_path}",
+                "message": f"Loaded {len(train_dataset)} training samples from {dataset_path}",
                 "level": "info",
             },
         )
@@ -309,7 +381,7 @@ def run_worker(cfg: dict) -> int:
                         "log",
                         job_id,
                         {
-                            "message": f"Step {step}/{max_steps} · loss: {loss_val:.4f}",
+                            "message": f"Step {step}/{progress_total_steps} · loss: {loss_val:.4f}",
                             "level": "info",
                         },
                     )
@@ -326,11 +398,11 @@ def run_worker(cfg: dict) -> int:
                         },
                     )
                 step = int(state.global_step)
-                frac = min(0.95, max(0.15, 0.15 + 0.8 * (step / max(1, max_steps))))
+                frac = min(0.95, max(0.15, 0.15 + 0.8 * (step / max(1, progress_total_steps))))
                 emit(
                     "progress",
                     job_id,
-                    {"fraction": round(frac, 3), "step": step, "total": max_steps},
+                    {"fraction": round(frac, 3), "step": step, "total": progress_total_steps},
                 )
 
         print("[checkpoint] Trainer/TRL imports complete", file=sys.stderr, flush=True)
@@ -338,17 +410,23 @@ def run_worker(cfg: dict) -> int:
             "output_dir": str(output_dir / "temp_checkpoints"),
             "per_device_train_batch_size": batch_size,
             "gradient_accumulation_steps": grad_accum,
-            "max_steps": max_steps,
+            "max_steps": max_steps if max_steps > 0 else -1,
+            "num_train_epochs": num_train_epochs,
+            "warmup_steps": warmup_steps,
             "learning_rate": learning_rate,
             "logging_steps": 1,
-            "save_strategy": "no",
+            "save_strategy": save_strategy,
+            "save_steps": save_steps,
             "report_to": "none",
             "fp16": True,
             "bf16": False,
             "dataset_text_field": "text",
-            "optim": "adamw_8bit",
+            "optim": optim,
             "seed": 42,
         }
+        sft_kwargs[evaluation_strategy_argument(SFTConfig)] = eval_strategy
+        if eval_strategy != "no":
+            sft_kwargs["eval_steps"] = eval_steps
         print("[checkpoint] Before SFTConfig construction", file=sys.stderr, flush=True)
         config = create_sft_config(SFTConfig, sft_kwargs, max_seq_length)
         print("[checkpoint] SFTConfig constructed", file=sys.stderr, flush=True)
@@ -366,13 +444,16 @@ def run_worker(cfg: dict) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
-                trainer = SFTTrainer(
-                    model=model,
-                    train_dataset=train_dataset,
-                    args=config,
-                    callbacks=[ProtocolCallback()],
+                trainer_kwargs = {
+                    "model": model,
+                    "train_dataset": train_dataset,
+                    "args": config,
+                    "callbacks": [ProtocolCallback()],
                     **extra,
-                )
+                }
+                if eval_dataset is not None:
+                    trainer_kwargs["eval_dataset"] = eval_dataset
+                trainer = SFTTrainer(**trainer_kwargs)
                 print(
                     "[checkpoint] SFTTrainer constructed successfully", file=sys.stderr, flush=True
                 )
@@ -476,7 +557,7 @@ def run_worker(cfg: dict) -> int:
         if was_cancelled:
             emit("job_complete", job_id, {"success": False, "exit_code": 130, "cancelled": True})
             return 130
-        emit("progress", job_id, {"fraction": 1.0, "step": max_steps, "total": max_steps})
+        emit("progress", job_id, {"fraction": 1.0, "step": progress_total_steps, "total": progress_total_steps})
         emit("job_complete", job_id, {"success": True, "exit_code": 0})
         return 0
 
