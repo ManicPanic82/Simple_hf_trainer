@@ -634,7 +634,9 @@ class DatasetsTab(TabPage):
     def request_shutdown(self) -> None:
         """Stop background Hub threads when the application closes."""
         workers = [
-            worker for worker in (self._download_worker, self._search_worker) if worker is not None
+            worker
+            for worker in (self._download_worker, self._search_worker, self._scan_worker)
+            if worker is not None
         ]
         for worker in workers:
             with suppress(Exception):
