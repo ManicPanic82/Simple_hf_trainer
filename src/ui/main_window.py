@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
             self.state,
             self.context.storage,
             self.context.model_service,
+            scan_on_init=False,
         )
         self.datasets_tab = DatasetsTab(
             self.state,

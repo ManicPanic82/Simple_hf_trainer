@@ -109,6 +109,8 @@ class ModelsTab(TabPage):
         storage: StorageService,
         model_service: ModelService | None = None,
         parent: QWidget | None = None,
+        *,
+        scan_on_init: bool = True,
     ) -> None:
         super().__init__(
             "Models",
@@ -283,7 +285,8 @@ class ModelsTab(TabPage):
 
         self.finish()
         self.refresh()
-        self.scan_library()
+        if scan_on_init:
+            self.scan_library()
 
         # Training/Heretic publish their outputs through shared state. Rescan
         # from disk when that happens; connect after the startup scan so this
