@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -44,7 +45,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _archive_file(source: Path, destination_dir: Path, package_root: Path, role: str) -> dict:
+def _archive_file(
+    source: Path,
+    destination_dir: Path,
+    package_root: Path,
+    role: str,
+    original_source: Path | None = None,
+) -> dict:
     source = source.expanduser().resolve(strict=True)
     if not source.is_file():
         raise ValueError(f"Dataset source is not a file: {source}")
@@ -55,13 +62,31 @@ def _archive_file(source: Path, destination_dir: Path, package_root: Path, role:
         shutil.copy2(source, destination)
     return {
         "role": role,
-        "source_path": str(source),
+        "source_path": str((original_source or source).expanduser().resolve()),
         "archived_path": str(destination.relative_to(package_root)),
         "filename": source.name,
         "size_bytes": destination.stat().st_size,
         "sha256": _sha256(destination),
         "archived": True,
     }
+
+
+def snapshot_training_datasets(
+    train_dataset: Path,
+    eval_dataset: Path | None,
+) -> tuple[tempfile.TemporaryDirectory, Path, Path | None]:
+    """Snapshot dataset inputs before training so the archive matches what was consumed."""
+    temporary = tempfile.TemporaryDirectory(prefix="simple-hf-training-data-")
+    root = Path(temporary.name)
+    train_copy = root / "train" / Path(train_dataset).name
+    train_copy.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(train_dataset, train_copy)
+    eval_copy = None
+    if eval_dataset is not None:
+        eval_copy = root / "evaluation" / Path(eval_dataset).name
+        eval_copy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(eval_dataset, eval_copy)
+    return temporary, train_copy, eval_copy
 
 
 def write_training_package(
@@ -72,16 +97,30 @@ def write_training_package(
     summary: dict,
     train_dataset: Path,
     eval_dataset: Path | None,
+    train_dataset_source: Path | None = None,
+    eval_dataset_source: Path | None = None,
 ) -> dict:
     """Copy exact local datasets and write reproducibility records beside model weights."""
     output_dir = Path(output_dir).resolve()
     data_root = output_dir / "training_data"
     archived = [
-        _archive_file(Path(train_dataset), data_root / "train", output_dir, "training"),
+        _archive_file(
+            Path(train_dataset),
+            data_root / "train",
+            output_dir,
+            "training",
+            original_source=train_dataset_source,
+        ),
     ]
     if eval_dataset is not None:
         archived.append(
-            _archive_file(Path(eval_dataset), data_root / "evaluation", output_dir, "evaluation")
+            _archive_file(
+                Path(eval_dataset),
+                data_root / "evaluation",
+                output_dir,
+                "evaluation",
+                original_source=eval_dataset_source,
+            )
         )
 
     manifest = {
