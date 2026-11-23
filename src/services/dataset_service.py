@@ -73,8 +73,8 @@ def inspect_dataset_file(
 ) -> LocalDatasetRecord | None:
     """Inspect a single file or directory to determine dataset properties.
 
-    ``lightweight`` skips reading full table contents for Arrow files; used by
-    scanning so startup is not blocked on large or actively written datasets.
+    ``lightweight`` reads schema-level metadata or a small header/sample. It
+    avoids full row counts for text formats during local library discovery.
     """
     if not file_path.exists():
         return None
@@ -90,40 +90,42 @@ def inspect_dataset_file(
         row_count: int | None = None
 
         if fmt == "jsonl":
-            count = 0
-            with open(file_path, encoding="utf-8", errors="replace") as f:
-                for idx, line in enumerate(f):
-                    count += 1
-                    if idx == 0:
-                        try:
-                            obj = json.loads(line)
-                            if isinstance(obj, dict):
-                                columns = list(obj.keys())
-                        except Exception:
-                            pass
-            row_count = count
-
-        elif fmt == "csv":
-            count = 0
-            with open(file_path, encoding="utf-8", errors="replace", newline="") as f:
-                reader = csv.reader(f)
-                header = next(reader, None)
-                if header:
-                    columns = [col.strip() for col in header]
-                for _ in reader:
-                    count += 1
-            row_count = count
-
-        elif fmt == "json":
+            # Discovery samples the first non-empty row. Counting every line
+            # makes startup proportional to the full dataset size.
             try:
                 with open(file_path, encoding="utf-8", errors="replace") as f:
-                    data = json.load(f)
-                    if isinstance(data, list):
-                        row_count = len(data)
-                        if data and isinstance(data[0], dict):
-                            columns = list(data[0].keys())
-            except Exception:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        obj = json.loads(line)
+                        if isinstance(obj, dict):
+                            columns = list(obj.keys())
+                        break
+            except (OSError, ValueError):
                 pass
+
+        elif fmt == "csv":
+            # The header is sufficient to identify the schema during discovery.
+            try:
+                with open(file_path, encoding="utf-8", errors="replace", newline="") as f:
+                    header = next(csv.reader(f), None)
+                    if header:
+                        columns = [col.strip() for col in header]
+            except OSError:
+                pass
+
+        elif fmt == "json":
+            # Avoid parsing a potentially large JSON array during discovery.
+            if not lightweight:
+                try:
+                    with open(file_path, encoding="utf-8", errors="replace") as f:
+                        data = json.load(f)
+                        if isinstance(data, list):
+                            row_count = len(data)
+                            if data and isinstance(data[0], dict):
+                                columns = list(data[0].keys())
+                except Exception:
+                    pass
 
         elif fmt == "parquet":
             try:
