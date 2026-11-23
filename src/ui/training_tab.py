@@ -224,8 +224,11 @@ class TrainingTab(TabPage):
         self.step_label.setObjectName("StripValue")
         self.loss_label = QLabel("Loss: —", control)
         self.loss_label.setObjectName("StripValue")
+        self.eval_loss_label = QLabel("Eval loss: —", control)
+        self.eval_loss_label.setObjectName("StripValue")
         metrics_layout.addWidget(self.step_label)
         metrics_layout.addWidget(self.loss_label)
+        metrics_layout.addWidget(self.eval_loss_label)
         metrics_layout.addStretch(1)
         control.add_layout(metrics_layout)
 
@@ -656,6 +659,8 @@ class TrainingTab(TabPage):
             val = payload.get("value")
             if name == "loss" and val is not None:
                 self.loss_label.setText(f"Loss: {float(val):.4f}")
+            elif name == "eval_loss" and val is not None:
+                self.eval_loss_label.setText(f"Eval loss: {float(val):.4f}")
 
         elif msg.type is MessageType.LOG:
             line = payload.get("message", "")
