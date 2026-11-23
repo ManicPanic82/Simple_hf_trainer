@@ -115,11 +115,11 @@ column = "text"
 
 def test_training_uses_a_snapshot_and_records_original_dataset_path(tmp_path: Path) -> None:
     source = tmp_path / "train.jsonl"
-    source.write_text('{"text":"original"}\\n', encoding="utf-8")
+    source.write_text('{"text":"original"}\n', encoding="utf-8")
     snapshot, train_copy, eval_copy = snapshot_training_datasets(source, None)
     try:
-        source.write_text('{"text":"changed after start"}\\n', encoding="utf-8")
-        assert train_copy.read_text(encoding="utf-8") == '{"text":"original"}\\n'
+        source.write_text('{"text":"changed after start"}\n', encoding="utf-8")
+        assert train_copy.read_text(encoding="utf-8") == '{"text":"original"}\n'
         output = tmp_path / "model"
         output.mkdir()
         manifest = write_training_package(
@@ -132,7 +132,7 @@ def test_training_uses_a_snapshot_and_records_original_dataset_path(tmp_path: Pa
             train_dataset_source=source,
         )
         archived = output / "training_data" / "train" / "train.jsonl"
-        assert archived.read_text(encoding="utf-8") == '{"text":"original"}\\n'
+        assert archived.read_text(encoding="utf-8") == '{"text":"original"}\n'
         assert manifest["datasets"][0]["source_path"] == str(source.resolve())
     finally:
         snapshot.cleanup()
