@@ -633,9 +633,7 @@ def run_worker(cfg: dict) -> int:
             "status": "cancelled" if was_cancelled else "completed",
             "final_loss": final_loss if math.isfinite(final_loss) else None,
             "elapsed_seconds": elapsed,
-            "global_step": int(
-                getattr(getattr(trainer, "state", None), "global_step", 0)
-            ),
+            "global_step": int(getattr(getattr(trainer, "state", None), "global_step", 0)),
             "training_rows": len(train_dataset),
             "evaluation_rows": len(eval_dataset) if eval_dataset is not None else None,
             "engine": "unsloth",
