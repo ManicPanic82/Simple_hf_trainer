@@ -10,7 +10,6 @@ from pathlib import Path
 
 import workers.unsloth_worker as worker_module
 
-
 def _run_with_export(
     monkeypatch,
     tmp_path: Path,
@@ -106,7 +105,6 @@ def _run_with_export(
         sys.stdout = real_stdout
     return rc, emitted, captured
 
-
 def test_default_export_is_merged_16bit(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
     rc, emitted, _captured = _run_with_export(monkeypatch, tmp_path, None, events)
@@ -116,7 +114,6 @@ def test_default_export_is_merged_16bit(monkeypatch, tmp_path: Path) -> None:
     results = [payload for t, _job, payload in emitted if t == "result"]
     assert results[0]["export_strategy"] == "merged_16bit"
     assert "config.json" in results[0]["artifacts"]
-
 
 def test_adapter_export_keeps_previous_behaviour(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
@@ -128,7 +125,6 @@ def test_adapter_export_keeps_previous_behaviour(monkeypatch, tmp_path: Path) ->
     results = [payload for t, _job, payload in emitted if t == "result"]
     assert results[0]["export_strategy"] == "adapter"
 
-
 def test_invalid_export_strategy_fails_cleanly(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
     rc, emitted, _captured = _run_with_export(monkeypatch, tmp_path, "gguf", events)
@@ -136,8 +132,6 @@ def test_invalid_export_strategy_fails_cleanly(monkeypatch, tmp_path: Path) -> N
     assert "trained" not in events
     errors = [payload for t, _job, payload in emitted if t == "error"]
     assert "Unsupported export_strategy" in errors[0]["message"]
-
-
 
 def test_training_settings_reach_sft_config_and_evaluation_dataset(
     monkeypatch, tmp_path: Path
@@ -174,7 +168,6 @@ def test_training_settings_reach_sft_config_and_evaluation_dataset(
     assert config["eval_steps"] == 10
     assert captured["trainer"]["eval_dataset"] is not None
 
-
 def test_evaluation_requires_dataset_before_engine_import(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
     rc, emitted, _captured = _run_with_export(
@@ -188,8 +181,6 @@ def test_evaluation_requires_dataset_before_engine_import(monkeypatch, tmp_path:
     assert "trained" not in events
     errors = [payload for kind, _job, payload in emitted if kind == "error"]
     assert "evaluation dataset is required" in errors[0]["message"]
-
-
 
 def test_evaluation_strategy_argument_supports_legacy_transformers_alias() -> None:
     class LegacySFTConfig:
