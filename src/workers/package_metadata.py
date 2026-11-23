@@ -159,6 +159,8 @@ def write_heretic_package(
     job_dir: Path,
     config_toml: str,
     metadata: dict,
+    metrics: list[dict] | None = None,
+    summary: dict | None = None,
 ) -> dict:
     """Keep Heretic config and dataset references with the exported modified model.
 
@@ -210,6 +212,18 @@ def write_heretic_package(
     if provenance.is_file():
         shutil.copy2(provenance, output_dir / "run.json")
     _write_json(
+        output_dir / "heretic_metrics.json",
+        {"schema_version": 1, "metrics": metrics or []},
+    )
+    _write_json(
+        output_dir / "heretic_summary.json",
+        {
+            "schema_version": 1,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            **(summary or {}),
+        },
+    )
+    _write_json(
         output_dir / "package_manifest.json",
         {
             "schema_version": 1,
@@ -236,6 +250,8 @@ This folder contains the exported model produced by Heretic.
 - `config.toml` is the exact configuration used for this run.
 - `run.json` contains the application's run provenance when available.
 - `training_data/dataset_manifest.json` records prompt dataset IDs, splits and columns.
+- `heretic_metrics.json` stores parsed scores from the Heretic run.
+- `heretic_summary.json` records the run outcome and trial count.
 - Local prompt dataset files are copied under `training_data/local_sources/`.
 
 Remote Hugging Face dataset IDs are recorded rather than downloaded in full. This avoids unexpectedly copying large datasets and preserves the exact dataset references and selected splits used by the configuration.
