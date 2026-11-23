@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         # Populate the dataset table after the window can already be shown.
-        QTimer.singleShot(0, lambda: self.datasets_tab.scan_datasets())
+        QTimer.singleShot(100, lambda: self.datasets_tab.scan_datasets())
 
     def _connect_signals(self) -> None:
         self.state.hardware_changed.connect(self.status_strip.apply_snapshot)
@@ -236,7 +236,7 @@ class MainWindow(QMainWindow):
         """Begin background monitoring. Called once the window is shown."""
         self.context.monitor.start()
         self.context.registry.refresh_async()
-        QTimer.singleShot(0, self.models_tab.scan_library)
+        QTimer.singleShot(100, self.models_tab.scan_library)
         # Dataset scan is scheduled after the window is created (see _build_layout).
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
