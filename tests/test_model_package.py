@@ -104,4 +104,6 @@ column = "text"
     assert (output / "training_data" / "dataset_manifest.json").is_file()
     assert (output / "config.toml").is_file()
     assert (output / "run.json").is_file()
+    assert (output / "heretic_metrics.json").is_file()
+    assert (output / "heretic_summary.json").is_file()
     assert (output / "README.md").is_file()
