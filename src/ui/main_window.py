@@ -253,7 +253,7 @@ class MainWindow(QMainWindow):
             for tab in (self.training_tab, self.heretic_tab)
         )
         scan_running = any(
-            bool(worker is not None and worker.isRunning())
+            bool(worker is not None and callable(getattr(worker, "isRunning", None)) and worker.isRunning())
             for worker in (
                 getattr(self.models_tab, "_scan_worker", None),
                 getattr(self.datasets_tab, "_scan_worker", None),
@@ -315,7 +315,7 @@ class MainWindow(QMainWindow):
         # Never destroy a QThread while it is still scanning: keep polling and
         # let the scan finish before the window and its child thread are closed.
         scan_running = any(
-            bool(worker is not None and worker.isRunning())
+            bool(worker is not None and callable(getattr(worker, "isRunning", None)) and worker.isRunning())
             for worker in (
                 getattr(self.models_tab, "_scan_worker", None),
                 getattr(self.datasets_tab, "_scan_worker", None),
