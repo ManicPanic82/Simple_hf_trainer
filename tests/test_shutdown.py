@@ -43,6 +43,33 @@ def _close_event() -> MagicMock:
     return MagicMock(spec=QCloseEvent)
 
 
+def test_initial_discovery_is_not_scheduled_during_construction(
+    window: MainWindow, wait_for
+) -> None:
+    model_scan = patch.object(window.models_tab, "scan_library")
+    dataset_scan = patch.object(window.datasets_tab, "scan_datasets")
+    model_scan.start()
+    dataset_scan.start()
+
+    assert not window._models_scan_timer.isActive()
+    assert not window._datasets_scan_timer.isActive()
+
+    # Process the event loop beyond the former singleShot delay. Construction
+    # alone must not launch a scan before MainWindow.start() is called.
+    assert wait_for(lambda: False, timeout_ms=150) is False
+    model_scan.assert_not_called()
+    dataset_scan.assert_not_called()
+
+
+def test_start_schedules_both_initial_discovery_scans(window: MainWindow) -> None:
+    window.start()
+
+    assert window._models_scan_timer.isActive()
+    assert window._datasets_scan_timer.isActive()
+
+    window._stop_startup_scan_timers()
+
+
 def test_clean_close_calls_super_and_accepts(window: MainWindow) -> None:
     event = _close_event()
 
