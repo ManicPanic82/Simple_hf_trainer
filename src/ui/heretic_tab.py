@@ -740,9 +740,13 @@ class HereticTab(TabPage):
         row = _add_form_row(grid, row, "Destination:", destination_row, span=2)
 
         self.output_name_edit = QLineEdit(section)
-        self.output_name_edit.setPlaceholderText("blank = model")
+        self.output_name_edit.setPlaceholderText("e.g. Qwen2.5-0.5B-Instruct-Modified")
+        self.output_name_edit.setToolTip(
+            "Name of the saved modified model in the Models library. This is a new "
+            "output folder; the selected source model is not renamed or overwritten."
+        )
         self.output_name_edit.textChanged.connect(self._update_provenance_label)
-        row = _add_form_row(grid, row, "Output folder name:", self.output_name_edit, span=2)
+        row = _add_form_row(grid, row, "Output model name:", self.output_name_edit, span=2)
 
         self.outputs_path = StoragePathRow("outputs_dir", "Outputs folder", section)
         self.outputs_path.open_requested.connect(self._open_outputs)
@@ -1646,8 +1650,19 @@ class HereticTab(TabPage):
             elif destination.exists() and not destination.is_dir():
                 problems.append("Output destination exists but is not a folder.")
         name = self.output_name_edit.text().strip() or "model"
-        if name in (".", "..") or any(separator in name for separator in ("/", "\\")):
-            problems.append("Output folder name must be a single folder name.")
+        invalid = '<>:"/\\|?*'
+        reserved = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+        if (
+            name in {".", ".."}
+            or len(name) > 120
+            or any(char in invalid or ord(char) < 32 for char in name)
+            or name.endswith((".", " "))
+            or name.split(".", 1)[0].upper() in reserved
+        ):
+            problems.append(
+                "Output model name must be a valid Windows folder name (1–120 characters, "
+                "without path separators or reserved characters)."
+            )
         source = Path(model_ref)
         if source.is_dir():
             try:

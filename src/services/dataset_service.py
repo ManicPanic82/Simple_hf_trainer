@@ -236,8 +236,8 @@ class DatasetService:
             self._catalog.save()
         return records
 
-    def preview_dataset(self, path: Path | str, num_rows: int = 10) -> DatasetPreview:
-        """Load the first few rows of a dataset and validate its structure."""
+    def preview_dataset(self, path: Path | str, num_rows: int = 100) -> DatasetPreview:
+        """Load up to 100 preview rows by default and validate dataset structure."""
         file_path = Path(path)
         if not file_path.is_file():
             raise FileNotFoundError(f"Dataset file not found: {file_path}")

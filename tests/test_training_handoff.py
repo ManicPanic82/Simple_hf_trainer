@@ -178,13 +178,37 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
 
     dataset = tmp_path / "data.jsonl"
     dataset.write_text('{"text":"hi"}\n', encoding="utf-8")
+    tab.output_model_name_edit.setText("My-Custom-Qwen")
     cfg = tab._build_config("job-x", "a-model", str(dataset))
     assert cfg["export_strategy"] == "merged_16bit"
+    assert cfg["output_model_name"] == "My-Custom-Qwen"
+    assert Path(cfg["output_dir"]).name == "My-Custom-Qwen"
+    assert Path(cfg["output_dir"]).parent.name == "unsloth_job-x"
     assert cfg["eval_dataset_path"] is None
 
     tab.export_combo.setCurrentIndex(1)
     cfg = tab._build_config("job-y", "a-model", str(dataset))
     assert cfg["export_strategy"] == "adapter"
+    assert cfg["output_model_name"] == "adapter"
+    assert cfg["output_dir"] == cfg["job_output_dir"]
+    assert not tab.output_model_name_edit.isEnabled()
+
+
+def test_merged_model_name_defaults_from_source_and_rejects_unsafe_names(qapp, tmp_path: Path) -> None:
+    import pytest
+
+    tab = _make_tab(
+        tmp_path,
+        job_manager=MagicMock(),
+        model_service=MagicMock(),
+        state=MagicMock(),
+    )
+    assert tab._resolve_output_model_name(
+        "unsloth/Qwen2.5-0.5B-Instruct", ""
+    ) == "Qwen2.5-0.5B-Instruct-finetuned"
+    for invalid in ("../overwrite", "bad/name", "CON", "trailing.", "x" * 121):
+        with pytest.raises(ValueError, match="valid Windows folder name"):
+            tab._resolve_output_model_name("source-model", invalid)
 
 
 def test_all_training_controls_are_serialized(qapp, tmp_path: Path) -> None:

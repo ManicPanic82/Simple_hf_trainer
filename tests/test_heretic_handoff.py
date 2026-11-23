@@ -40,6 +40,9 @@ def test_successful_heretic_job_publishes_scanned_models(qapp, tmp_path: Path) -
     scanned = [SimpleNamespace(name="abliterated-model", kind="abliterated")]
     model_service.scan_local_models.return_value = scanned
     tab = _make_tab(tmp_path, job_manager=job_manager, model_service=model_service, state=state)
+    tab.output_name_edit.setText("Qwen-Custom-Abliterated")
+    _, named_model_dir, _ = tab._output_paths("name-check")
+    assert named_model_dir.name == "Qwen-Custom-Abliterated"
 
     job_id = "heretic-1"
     tab._active_job_id = job_id

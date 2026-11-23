@@ -35,6 +35,7 @@ from ui.tab_page import TabPage
 
 # Data file types that can represent a dataset split/file on disk.
 _DATA_FILE_SUFFIXES = frozenset({".jsonl", ".json", ".csv", ".parquet", ".arrow"})
+_PREVIEW_ROW_LIMIT = 100
 
 
 class DatasetSearchWorker(QThread):
@@ -300,7 +301,8 @@ class DatasetsTab(TabPage):
         preview.add(self.columns_row)
 
         self.preview_table = QTableWidget(0, 0, preview)
-        self.preview_table.setMaximumHeight(180)
+        self.preview_table.setMaximumHeight(320)
+        self.preview_table.setToolTip("Showing up to 100 rows. Scroll to inspect the remaining preview rows.")
         preview.add(self.preview_table)
 
         action_row = QHBoxLayout()
@@ -578,7 +580,9 @@ class DatasetsTab(TabPage):
 
     def _show_preview(self, file_path: Path) -> None:
         try:
-            preview: DatasetPreview = self._service.preview_dataset(file_path, num_rows=10)
+            preview: DatasetPreview = self._service.preview_dataset(
+                file_path, num_rows=_PREVIEW_ROW_LIMIT
+            )
             self.columns_row.set_value(", ".join(preview.columns) if preview.columns else "None")
             self.validation_row.set_value(preview.validation_message)
             self.val_pill.set_state(

@@ -88,6 +88,44 @@ def test_preview_dataset_and_validation(tmp_path: Path):
     assert "Needs preparation" in raw_preview.validation_message
 
 
+def test_default_preview_returns_up_to_100_rows_for_supported_formats(tmp_path: Path):
+    service = DatasetService(StorageService(AppSettings()))
+    records = [{"text": f"sample {index}"} for index in range(125)]
+
+    jsonl_path = tmp_path / "preview.jsonl"
+    jsonl_path.write_text(
+        "".join(json.dumps(record) + "\\n" for record in records), encoding="utf-8"
+    )
+    json_path = tmp_path / "preview.json"
+    json_path.write_text(json.dumps(records), encoding="utf-8")
+    csv_path = tmp_path / "preview.csv"
+    csv_path.write_text(
+        "text\\n" + "".join(f"sample {index}\\n" for index in range(125)), encoding="utf-8"
+    )
+
+    for path in (jsonl_path, json_path, csv_path):
+        preview = service.preview_dataset(path)
+        assert preview.total_rows == 125
+        assert len(preview.rows) == 100
+
+    pytest = __import__("pytest")
+    pa = pytest.importorskip("pyarrow")
+    import pyarrow.ipc as ipc
+    import pyarrow.parquet as pq
+
+    table = pa.Table.from_pylist(records)
+    parquet_path = tmp_path / "preview.parquet"
+    pq.write_table(table, parquet_path)
+    arrow_path = tmp_path / "preview.arrow"
+    with pa.OSFile(str(arrow_path), "wb") as sink, ipc.new_file(sink, table.schema) as writer:
+        writer.write_table(table)
+
+    for path in (parquet_path, arrow_path):
+        preview = service.preview_dataset(path)
+        assert preview.total_rows == 125
+        assert len(preview.rows) == 100
+
+
 def test_prepare_dataset(tmp_path: Path):
     service = DatasetService(StorageService(AppSettings()))
 

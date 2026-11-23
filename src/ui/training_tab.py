@@ -205,6 +205,17 @@ class TrainingTab(TabPage):
         )
         grid.addWidget(self.export_combo, 10, 1, 1, 3)
 
+        grid.addWidget(QLabel("Merged model name:", cfg_card), 11, 0)
+        self.output_model_name_edit = QLineEdit(cfg_card)
+        self.output_model_name_edit.setPlaceholderText("Base model name + -finetuned")
+        self.output_model_name_edit.setToolTip(
+            "Name of the merged model's folder in the Models library. Leave blank to "
+            "use the source model name with '-finetuned' appended. The source model "
+            "is never modified."
+        )
+        grid.addWidget(self.output_model_name_edit, 11, 1, 1, 3)
+        self.export_combo.currentIndexChanged.connect(self._update_export_name_state)
+
         cfg_card.add_layout(grid)
         self.add(cfg_card)
 
@@ -268,7 +279,7 @@ class TrainingTab(TabPage):
         self.outputs_path = StoragePathRow("outputs_dir", "Outputs folder", outputs)
         self.outputs_path.open_requested.connect(self._open_outputs)
         outputs.add(self.outputs_path)
-        self.last_adapter_row = FieldRow("Last adapter", "None saved yet", caption_width=104)
+        self.last_adapter_row = FieldRow("Last export", "None saved yet", caption_width=104)
         outputs.add(self.last_adapter_row)
         self.add(outputs)
 
@@ -296,6 +307,38 @@ class TrainingTab(TabPage):
             self.dataset_combo.setCurrentIndex(idx)
         else:
             self.dataset_combo.setEditText(dataset_path)
+
+    def _update_export_name_state(self, *_args) -> None:
+        """Only ask for a custom output name when exporting a merged model."""
+        merged = self.export_combo.currentData() == "merged_16bit"
+        self.output_model_name_edit.setEnabled(merged)
+        self.output_model_name_edit.setToolTip(
+            "Name of the merged model's folder in the Models library. Leave blank to "
+            "use the source model name with '-finetuned' appended. The source model "
+            "is never modified."
+            if merged
+            else "Adapter-only exports keep their job folder name."
+        )
+
+    @staticmethod
+    def _resolve_output_model_name(model_name: str, requested_name: str) -> str:
+        """Return a safe single Windows folder name for a merged model export."""
+        source_name = str(model_name).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        name = requested_name.strip() or f"{source_name or 'model'}-finetuned"
+        invalid = '<>:"/\\|?*'
+        reserved = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+        if (
+            name in {".", ".."}
+            or len(name) > 120
+            or any(char in invalid or ord(char) < 32 for char in name)
+            or name.endswith((".", " "))
+            or name.split(".", 1)[0].upper() in reserved
+        ):
+            raise ValueError(
+                "Merged model name must be a valid Windows folder name (1–120 characters, "
+                "without path separators or reserved characters)."
+            )
+        return name
 
     def _update_model_choices(self, models: list[LocalModelRecord]) -> None:
         curr = self.model_combo.currentText()
@@ -453,6 +496,14 @@ class TrainingTab(TabPage):
         if not 0 < learning_rate < 1:
             self._state.notify("error", "Learning rate must be greater than 0 and less than 1.")
             return
+        if self.export_combo.currentData() == "merged_16bit":
+            try:
+                self._resolve_output_model_name(
+                    str(model_name), self.output_model_name_edit.text()
+                )
+            except ValueError as error:
+                self._state.notify("error", str(error))
+                return
 
         unsloth_status = self._registry.status(UNSLOTH)
         interpreter = unsloth_status.interpreter
@@ -490,8 +541,17 @@ class TrainingTab(TabPage):
         self._launch_job(job.job_id, config_data, interpreter, worker_script)
 
     def _build_config(self, job_id: str, model_name: str, dataset_path: str) -> dict:
-        outputs_dir = self._storage.path_for("outputs_dir") / f"unsloth_{job_id}"
-        outputs_dir.mkdir(parents=True, exist_ok=True)
+        job_dir = self._storage.path_for("outputs_dir") / f"unsloth_{job_id}"
+        job_dir.mkdir(parents=True, exist_ok=True)
+        export_strategy = self.export_combo.currentData() or "merged_16bit"
+        if export_strategy == "merged_16bit":
+            output_model_name = self._resolve_output_model_name(
+                str(model_name), self.output_model_name_edit.text()
+            )
+            outputs_dir = job_dir / output_model_name
+        else:
+            output_model_name = "adapter"
+            outputs_dir = job_dir
         try:
             lr_val = float(self.lr_edit.text().strip())
         except ValueError:
@@ -508,6 +568,8 @@ class TrainingTab(TabPage):
             "model_name": model_name,
             "dataset_path": dataset_path,
             "output_dir": str(outputs_dir),
+            "job_output_dir": str(job_dir),
+            "output_model_name": output_model_name,
             "max_steps": self.steps_spin.value(),
             "max_seq_length": self.seq_spin.value(),
             "batch_size": self.batch_spin.value(),
@@ -522,7 +584,7 @@ class TrainingTab(TabPage):
             "eval_strategy": self.eval_strategy_combo.currentData() or "no",
             "eval_steps": self.eval_steps_spin.value(),
             "eval_dataset_path": eval_dataset_path,
-            "export_strategy": self.export_combo.currentData() or "merged_16bit",
+            "export_strategy": export_strategy,
         }
 
     def _connect_queue_signal(self) -> None:
