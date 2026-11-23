@@ -31,6 +31,29 @@ def test_inspect_dataset_file(tmp_path: Path):
     assert rec.is_prepared is True
 
 
+
+def test_lightweight_dataset_inspection_skips_full_row_count(tmp_path: Path):
+    jsonl_file = tmp_path / "large.jsonl"
+    jsonl_file.write_text(
+        '{"instruction":"first","output":"one"}\\n'
+        '{"instruction":"second","output":"two"}\\n',
+        encoding="utf-8",
+    )
+
+    record = inspect_dataset_file(jsonl_file, lightweight=True)
+
+    assert record is not None
+    assert record.row_count is None
+    assert record.columns == ["instruction", "output"]
+
+    csv_file = tmp_path / "large.csv"
+    csv_file.write_text("prompt,response\\nfirst,one\\nsecond,two\\n", encoding="utf-8")
+    csv_record = inspect_dataset_file(csv_file, lightweight=True)
+
+    assert csv_record is not None
+    assert csv_record.row_count is None
+    assert csv_record.columns == ["prompt", "response"]
+
 def test_preview_dataset_and_validation(tmp_path: Path):
     service = DatasetService(StorageService(AppSettings()))
 
