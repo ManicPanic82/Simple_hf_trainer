@@ -556,6 +556,7 @@ class TrainingTab(TabPage):
                 self.start_button.setToolTip(advisory)
             self.step_label.setText("Step: 0")
             self.loss_label.setText("Loss: —")
+            self.eval_loss_label.setText("Eval loss: —")
 
             scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
             scratch_dir.mkdir(parents=True, exist_ok=True)
