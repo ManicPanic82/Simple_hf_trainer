@@ -97,7 +97,7 @@ class TrainingTab(TabPage):
         grid.addWidget(self.dataset_combo, 1, 1, 1, 3)
 
         # Hyperparameters
-        grid.addWidget(QLabel("Max Steps:", cfg_card), 2, 0)
+        grid.addWidget(QLabel("Max Steps (0 = epochs):", cfg_card), 2, 0)
         self.steps_spin = QSpinBox(cfg_card)
         self.steps_spin.setRange(0, 100000)
         self.steps_spin.setValue(5)
