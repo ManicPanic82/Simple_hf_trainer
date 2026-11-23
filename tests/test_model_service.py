@@ -151,10 +151,10 @@ def test_model_size_excludes_archived_training_data(tmp_path: Path):
     model_dir = tmp_path / "packaged-model"
     model_dir.mkdir()
     (model_dir / "config.json").write_text(json.dumps({"model_type": "llama"}), encoding="utf-8")
-    (model_dir / "model.safetensors").write_bytes(b"\\x00" * (2 * 1024 * 1024))
+    (model_dir / "model.safetensors").write_bytes(b"\x00" * (2 * 1024 * 1024))
     training_data = model_dir / "training_data" / "train"
     training_data.mkdir(parents=True)
-    (training_data / "train.jsonl").write_bytes(b"\\x00" * (4 * 1024 * 1024))
+    (training_data / "train.jsonl").write_bytes(b"\x00" * (4 * 1024 * 1024))
     (model_dir / "training_config.json").write_text("{}", encoding="utf-8")
 
     record = inspect_model_directory(model_dir)
