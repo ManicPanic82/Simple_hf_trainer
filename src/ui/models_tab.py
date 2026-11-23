@@ -517,6 +517,7 @@ class ModelsTab(TabPage):
         self._scan_worker.results_ready.connect(self._on_local_scan_results)
         self._scan_worker.scan_failed.connect(self._on_local_scan_failed)
         self._scan_worker.finished.connect(self._on_local_scan_finished)
+        self._scan_worker.finished.connect(self._scan_worker.deleteLater)
         self._scan_worker.start()
 
     def _on_local_scan_results(self, records: list[LocalModelRecord]) -> None:
