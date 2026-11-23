@@ -125,6 +125,8 @@ def inspect_dataset_file(
                         columns = [col.strip() for col in header]
                     if not lightweight:
                         row_count = sum(1 for _ in reader)
+            except (OSError, csv.Error):
+                pass
 
         elif fmt == "json":
             # Avoid parsing a potentially large JSON array during discovery.
