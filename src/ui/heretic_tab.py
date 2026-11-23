@@ -1651,7 +1651,14 @@ class HereticTab(TabPage):
                 problems.append("Output destination exists but is not a folder.")
         name = self.output_name_edit.text().strip() or "model"
         invalid = '<>:"/\\|?*'
-        reserved = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+        reserved = {
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            *(f"COM{i}" for i in range(1, 10)),
+            *(f"LPT{i}" for i in range(1, 10)),
+        }
         if (
             name in {".", ".."}
             or len(name) > 120
