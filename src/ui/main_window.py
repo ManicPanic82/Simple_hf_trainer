@@ -253,7 +253,11 @@ class MainWindow(QMainWindow):
             for tab in (self.training_tab, self.heretic_tab)
         )
         scan_running = any(
-            bool(worker is not None and callable(getattr(worker, "isRunning", None)) and worker.isRunning())
+            bool(
+                worker is not None
+                and callable(getattr(worker, "isRunning", None))
+                and worker.isRunning()
+            )
             for worker in (
                 getattr(self.models_tab, "_scan_worker", None),
                 getattr(self.datasets_tab, "_scan_worker", None),
