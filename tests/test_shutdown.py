@@ -106,7 +106,6 @@ def test_worker_exit_closes_window_and_stops_timers(window: MainWindow) -> None:
     assert not window._shutdown_timeout_timer.isActive()
 
 
-
 def test_shutdown_waits_for_local_discovery_thread(window: MainWindow) -> None:
     scan = MagicMock()
     scan.isRunning.return_value = True
@@ -124,6 +123,7 @@ def test_shutdown_waits_for_local_discovery_thread(window: MainWindow) -> None:
     window._shutdown_timer.timeout.emit()
 
     window.close.assert_called_once_with()
+
 
 def test_timeout_force_stops_workers_and_closes(window: MainWindow) -> None:
     window.training_tab.worker_running = True

@@ -59,14 +59,18 @@ def _service(rec: LocalDatasetRecord, *, valid: bool = True) -> MagicMock:
 
 
 def _tab(tmp_path: Path, rec: LocalDatasetRecord, *, valid: bool = True) -> DatasetsTab:
+    service = _service(rec, valid=valid)
     tab = DatasetsTab(
         AppState(),
         StorageService(_settings(tmp_path)),
-        _service(rec, valid=valid),
+        service,
+        scan_on_init=False,
     )
+    # Populate the table directly: these tests cover split selection, not
+    # the asynchronous local-dataset discovery worker.
+    tab._on_local_scan_results([rec])
     tab.local_table.selectRow(0)
     return tab
-
 
 def _two_split_dir(tmp_path: Path) -> tuple[Path, Path, Path]:
     data_dir = tmp_path / "datasets" / "org--data"
