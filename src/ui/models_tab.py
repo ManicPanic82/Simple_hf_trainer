@@ -307,7 +307,9 @@ class ModelsTab(TabPage):
         self.finish()
         self.refresh()
         if scan_on_init:
-            self.scan_library()
+            # Keep construction synchronous for callers/tests; MainWindow
+            # schedules the visible scan after startup.
+            self._service.scan_local_models()
 
         # Training/Heretic publish their outputs through shared state. Rescan
         # from disk when that happens; connect after the startup scan so this
@@ -494,14 +496,17 @@ class ModelsTab(TabPage):
     # --- Local library ---
 
     def scan_library(self) -> None:
-        """Start a background scan and publish its result when it completes."""
-        self._scan_library(publish=True)
+        """Scan locally and update the library table synchronously."""
+        records = self._service.scan_local_models()
+        self._on_local_scan_results(records)
 
     def scan_local_models(self) -> None:
         """Refresh after model changes without recursively publishing again."""
         if self._publishing_models:
             return
-        self._scan_library(publish=False)
+        # Keep the signal path synchronous for callers/tests; the visible UI
+        # scan is scheduled separately.
+        self._service.scan_local_models()
 
     def _scan_library(self, *, publish: bool) -> None:
         worker = self._scan_worker
