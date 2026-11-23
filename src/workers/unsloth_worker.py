@@ -59,7 +59,7 @@ def validate_dataset_path(dataset_path: str | Path | None) -> Path:
         raise FileNotFoundError(f"Training dataset file not found: {path}")
     if path.suffix.lower() not in {".jsonl", ".json", ".csv", ".parquet", ".arrow"}:
         raise ValueError(f"Unsupported training dataset format: {path.suffix or 'no extension'}")
-    return path
+    return path.resolve()
 
 
 def start_cancel_listener(job_id: str) -> threading.Event:
