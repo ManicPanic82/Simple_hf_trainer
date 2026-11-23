@@ -47,6 +47,23 @@ class ModelSearchWorker(QThread):
             self.search_failed.emit(str(error))
 
 
+class LocalModelScanWorker(QThread):
+    """Discover local models without blocking the Qt event loop."""
+
+    results_ready = Signal(list)
+    scan_failed = Signal(str)
+
+    def __init__(self, service: ModelService, parent=None):
+        super().__init__(parent)
+        self.service = service
+
+    def run(self) -> None:
+        try:
+            self.results_ready.emit(self.service.scan_local_models())
+        except Exception as error:
+            self.scan_failed.emit(str(error))
+
+
 class ModelInfoWorker(QThread):
     """Fetch selected model metadata without blocking the Qt event loop."""
 
@@ -122,6 +139,10 @@ class ModelsTab(TabPage):
         self._storage = storage
         self._service = model_service or ModelService(storage)
         self._search_worker: ModelSearchWorker | None = None
+        self._scan_worker: LocalModelScanWorker | None = None
+        self._scan_pending = False
+        self._scan_pending_publish = False
+        self._scan_publish = False
         self._download_worker: ModelDownloadWorker | None = None
         self._info_workers: list[ModelInfoWorker] = []
         self._selected_hub_model: HubModelRecord | None = None
@@ -473,24 +494,32 @@ class ModelsTab(TabPage):
     # --- Local library ---
 
     def scan_library(self) -> None:
-        """Rescan from disk and publish the result to shared state."""
+        """Start a background scan and publish its result when it completes."""
         self._scan_library(publish=True)
 
     def scan_local_models(self) -> None:
-        """Rescan from disk when shared model state changes.
-
-        This is a slot for ``AppState.models_changed``. It deliberately does
-        not publish again: ``scan_library`` publishes, which emits that same
-        signal, so republishing here would recurse indefinitely. Emissions
-        caused by our own ``scan_library`` are ignored to avoid a duplicate
-        scan of the same files.
-        """
+        """Refresh after model changes without recursively publishing again."""
         if self._publishing_models:
             return
         self._scan_library(publish=False)
 
     def _scan_library(self, *, publish: bool) -> None:
-        records = self._service.scan_local_models()
+        worker = self._scan_worker
+        if worker is not None and worker.isRunning():
+            self._scan_pending = True
+            self._scan_pending_publish = self._scan_pending_publish or publish
+            return
+
+        self._scan_publish = publish
+        self.scan_button.setEnabled(False)
+        self.library_pill.set_state("warn", "Scanning…")
+        self._scan_worker = LocalModelScanWorker(self._service, self)
+        self._scan_worker.results_ready.connect(self._on_local_scan_results)
+        self._scan_worker.scan_failed.connect(self._on_local_scan_failed)
+        self._scan_worker.finished.connect(self._on_local_scan_finished)
+        self._scan_worker.start()
+
+    def _on_local_scan_results(self, records: list[LocalModelRecord]) -> None:
         self._local_models = records
         self.library_table.setRowCount(len(records))
         for row, rec in enumerate(records):
@@ -503,12 +532,25 @@ class ModelsTab(TabPage):
             self.library_table.setItem(row, 4, QTableWidgetItem(rec.status_detail))
 
         self.library_pill.set_state("ok" if records else "off", f"{len(records)} models")
-        if publish:
+        if self._scan_publish:
             self._publishing_models = True
             try:
                 self._state.publish_models(records)
             finally:
                 self._publishing_models = False
+
+    def _on_local_scan_failed(self, error: str) -> None:
+        self.library_pill.set_state("error", "Scan failed")
+        self._state.notify("error", f"Local model scan failed: {error}")
+
+    def _on_local_scan_finished(self) -> None:
+        self.scan_button.setEnabled(True)
+        self._scan_worker = None
+        if self._scan_pending:
+            publish = self._scan_pending_publish
+            self._scan_pending = False
+            self._scan_pending_publish = False
+            self._scan_library(publish=publish)
 
     def _on_local_model_selected(self) -> None:
         selected = self.library_table.selectedItems()
