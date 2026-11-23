@@ -751,9 +751,13 @@ class TrainingTab(TabPage):
         elif msg.type is MessageType.PROGRESS:
             frac = float(payload.get("fraction", 0.0))
             self.progress_bar.setValue(int(frac * 100))
-            self.dashboard.set_progress(frac)
             step = payload.get("step")
             total = payload.get("total")
+            training_fraction = payload.get("training_fraction")
+            if training_fraction is None and total:
+                training_fraction = float(step or 0) / float(total)
+            if training_fraction is not None:
+                self.dashboard.set_progress(float(training_fraction))
             if step is not None:
                 self.step_label.setText(f"Step: {step}/{total}")
             epoch = payload.get("epoch")
