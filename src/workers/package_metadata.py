@@ -6,7 +6,6 @@ import hashlib
 import json
 import math
 import shutil
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -72,21 +71,27 @@ def _archive_file(
 
 
 def snapshot_training_datasets(
+    output_dir: Path,
     train_dataset: Path,
     eval_dataset: Path | None,
-) -> tuple[tempfile.TemporaryDirectory, Path, Path | None]:
-    """Snapshot dataset inputs before training so the archive matches what was consumed."""
-    temporary = tempfile.TemporaryDirectory(prefix="simple-hf-training-data-")
-    root = Path(temporary.name)
-    train_copy = root / "train" / Path(train_dataset).name
+) -> tuple[Path, Path | None]:
+    """Snapshot dataset inputs inside the package before training consumes them."""
+    output_dir = Path(output_dir)
+    data_root = output_dir / "training_data"
+    train_copy = data_root / "train" / Path(train_dataset).name
     train_copy.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(train_dataset, train_copy)
+    train_source = Path(train_dataset).resolve(strict=True)
+    if train_source != train_copy.resolve():
+        shutil.copy2(train_source, train_copy)
+
     eval_copy = None
     if eval_dataset is not None:
-        eval_copy = root / "evaluation" / Path(eval_dataset).name
+        eval_copy = data_root / "evaluation" / Path(eval_dataset).name
         eval_copy.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(eval_dataset, eval_copy)
-    return temporary, train_copy, eval_copy
+        eval_source = Path(eval_dataset).resolve(strict=True)
+        if eval_source != eval_copy.resolve():
+            shutil.copy2(eval_source, eval_copy)
+    return train_copy, eval_copy
 
 
 def write_training_package(
