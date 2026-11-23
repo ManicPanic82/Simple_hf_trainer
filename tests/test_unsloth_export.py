@@ -11,7 +11,13 @@ from pathlib import Path
 import workers.unsloth_worker as worker_module
 
 
-def _run_with_export(monkeypatch, tmp_path: Path, strategy: str | None, events: list[str]):
+def _run_with_export(
+    monkeypatch,
+    tmp_path: Path,
+    strategy: str | None,
+    events: list[str],
+    config_overrides: dict | None = None,
+):
     """Drive run_worker with stubbed engines and capture save calls."""
     dataset = tmp_path / "dataset.jsonl"
     dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
@@ -47,15 +53,17 @@ def _run_with_export(monkeypatch, tmp_path: Path, strategy: str | None, events: 
         def get_peft_model(model, **kwargs):
             return model
 
+    captured: dict = {}
+
     class FakeSFTConfig:
         def __init__(self, **kwargs):
-            pass
+            captured["config"] = kwargs
 
     class FakeSFTTrainer:
         state = types.SimpleNamespace(global_step=1)
 
         def __init__(self, **kwargs):
-            pass
+            captured["trainer"] = kwargs
 
         def train(self):
             events.append("trained")
@@ -88,18 +96,20 @@ def _run_with_export(monkeypatch, tmp_path: Path, strategy: str | None, events: 
     }
     if strategy is not None:
         cfg["export_strategy"] = strategy
+    if config_overrides:
+        cfg.update(config_overrides)
 
     real_stdout = sys.stdout
     try:
         rc = worker_module.run_worker(cfg)
     finally:
         sys.stdout = real_stdout
-    return rc, emitted
+    return rc, emitted, captured
 
 
 def test_default_export_is_merged_16bit(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
-    rc, emitted = _run_with_export(monkeypatch, tmp_path, None, events)
+    rc, emitted, _captured = _run_with_export(monkeypatch, tmp_path, None, events)
     assert rc == 0
     assert "merged:merged_16bit" in events
     assert "adapter_saved" not in events
@@ -110,7 +120,7 @@ def test_default_export_is_merged_16bit(monkeypatch, tmp_path: Path) -> None:
 
 def test_adapter_export_keeps_previous_behaviour(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
-    rc, emitted = _run_with_export(monkeypatch, tmp_path, "adapter", events)
+    rc, emitted, _captured = _run_with_export(monkeypatch, tmp_path, "adapter", events)
     assert rc == 0
     assert "adapter_saved" in events
     assert "tokenizer_saved" in events
@@ -121,8 +131,60 @@ def test_adapter_export_keeps_previous_behaviour(monkeypatch, tmp_path: Path) ->
 
 def test_invalid_export_strategy_fails_cleanly(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
-    rc, emitted = _run_with_export(monkeypatch, tmp_path, "gguf", events)
+    rc, emitted, _captured = _run_with_export(monkeypatch, tmp_path, "gguf", events)
     assert rc == 1
     assert "trained" not in events
     errors = [payload for t, _job, payload in emitted if t == "error"]
     assert "Unsupported export_strategy" in errors[0]["message"]
+
+
+
+def test_training_settings_reach_sft_config_and_evaluation_dataset(
+    monkeypatch, tmp_path: Path
+) -> None:
+    events: list[str] = []
+    eval_dataset = tmp_path / "eval.jsonl"
+    eval_dataset.write_text('{"text":"evaluation sample"}\\n', encoding="utf-8")
+    rc, emitted, captured = _run_with_export(
+        monkeypatch,
+        tmp_path,
+        "adapter",
+        events,
+        {
+            "max_steps": 0,
+            "num_train_epochs": 4,
+            "warmup_steps": 12,
+            "optim": "adamw_torch",
+            "save_strategy": "steps",
+            "save_steps": 25,
+            "eval_strategy": "steps",
+            "eval_steps": 10,
+            "eval_dataset_path": str(eval_dataset),
+        },
+    )
+    assert rc == 0
+    config = captured["config"]
+    assert config["max_steps"] == -1
+    assert config["num_train_epochs"] == 4
+    assert config["warmup_steps"] == 12
+    assert config["optim"] == "adamw_torch"
+    assert config["save_strategy"] == "steps"
+    assert config["save_steps"] == 25
+    assert config["eval_strategy"] == "steps"
+    assert config["eval_steps"] == 10
+    assert captured["trainer"]["eval_dataset"] is not None
+
+
+def test_evaluation_requires_dataset_before_engine_import(monkeypatch, tmp_path: Path) -> None:
+    events: list[str] = []
+    rc, emitted, _captured = _run_with_export(
+        monkeypatch,
+        tmp_path,
+        "adapter",
+        events,
+        {"eval_strategy": "epoch", "eval_dataset_path": None},
+    )
+    assert rc == 1
+    assert "trained" not in events
+    errors = [payload for kind, _job, payload in emitted if kind == "error"]
+    assert "evaluation dataset is required" in errors[0]["message"]
