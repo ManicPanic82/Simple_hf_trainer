@@ -191,8 +191,8 @@ def test_all_training_controls_are_serialized(qapp, tmp_path: Path) -> None:
     )
     train_path = tmp_path / "train.jsonl"
     eval_path = tmp_path / "eval.jsonl"
-    train_path.write_text('{"text":"train"}\\n', encoding="utf-8")
-    eval_path.write_text('{"text":"eval"}\\n', encoding="utf-8")
+    train_path.write_text('{"text":"train"}\n', encoding="utf-8")
+    eval_path.write_text('{"text":"eval"}\n', encoding="utf-8")
     tab.steps_spin.setValue(0)
     tab.epochs_spin.setValue(4)
     tab.warmup_spin.setValue(12)
