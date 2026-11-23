@@ -323,10 +323,19 @@ class TrainingTab(TabPage):
     @staticmethod
     def _resolve_output_model_name(model_name: str, requested_name: str) -> str:
         """Return a safe single Windows folder name for a merged model export."""
-        source_name = str(model_name).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        source_name = (
+            str(model_name).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        )
         name = requested_name.strip() or f"{source_name or 'model'}-finetuned"
         invalid = '<>:"/\\|?*'
-        reserved = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+        reserved = {
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            *(f"COM{i}" for i in range(1, 10)),
+            *(f"LPT{i}" for i in range(1, 10)),
+        }
         if (
             name in {".", ".."}
             or len(name) > 120

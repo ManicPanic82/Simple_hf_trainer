@@ -194,7 +194,9 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     assert not tab.output_model_name_edit.isEnabled()
 
 
-def test_merged_model_name_defaults_from_source_and_rejects_unsafe_names(qapp, tmp_path: Path) -> None:
+def test_merged_model_name_defaults_from_source_and_rejects_unsafe_names(
+    qapp, tmp_path: Path
+) -> None:
     import pytest
 
     tab = _make_tab(
