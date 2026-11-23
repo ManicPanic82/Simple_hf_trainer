@@ -74,7 +74,8 @@ class TrainingTab(TabPage):
         # --- Configuration Card ---
         cfg_card = Card(
             "Fine-tuning configuration",
-            "Select a model and prepared dataset, and configure 4-bit LoRA hyperparameters.",
+            "Select a model and prepared dataset, and configure 4-bit LoRA hyperparameters. "
+            "Each export archives the exact dataset files and training records with the model.",
         )
 
         grid = QGridLayout()
