@@ -46,19 +46,18 @@ def _close_event() -> MagicMock:
 def test_initial_discovery_is_not_scheduled_during_construction(
     window: MainWindow, wait_for
 ) -> None:
-    model_scan = patch.object(window.models_tab, "scan_library")
-    dataset_scan = patch.object(window.datasets_tab, "scan_datasets")
-    model_scan.start()
-    dataset_scan.start()
+    with (
+        patch.object(window.models_tab, "scan_library") as model_scan,
+        patch.object(window.datasets_tab, "scan_datasets") as dataset_scan,
+    ):
+        assert not window._models_scan_timer.isActive()
+        assert not window._datasets_scan_timer.isActive()
 
-    assert not window._models_scan_timer.isActive()
-    assert not window._datasets_scan_timer.isActive()
-
-    # Process the event loop beyond the former singleShot delay. Construction
-    # alone must not launch a scan before MainWindow.start() is called.
-    assert wait_for(lambda: False, timeout_ms=150) is False
-    model_scan.assert_not_called()
-    dataset_scan.assert_not_called()
+        # Process the event loop beyond the former singleShot delay. Construction
+        # alone must not launch a scan before MainWindow.start() is called.
+        assert wait_for(lambda: False, timeout_ms=150) is False
+        model_scan.assert_not_called()
+        dataset_scan.assert_not_called()
 
 
 def test_start_schedules_both_initial_discovery_scans(window: MainWindow) -> None:
