@@ -610,6 +610,17 @@ def run_worker(cfg: dict) -> int:
             tokenizer.save_pretrained(str(output_dir))
             print("[checkpoint] Tokenizer saved", file=sys.stderr, flush=True)
 
+        weight_files = [
+            path
+            for path in output_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in {".safetensors", ".bin", ".pt", ".pth"}
+        ]
+        if not weight_files:
+            raise RuntimeError(
+                "Training export finished without producing a model weight file; "
+                "the output package will not be reported as successful."
+            )
+
         package_summary = {
             "status": "cancelled" if was_cancelled else "completed",
             "final_loss": final_loss if math.isfinite(final_loss) else None,
@@ -639,18 +650,7 @@ def run_worker(cfg: dict) -> int:
             },
         )
 
-        package_metadata_names = {
-            "README.md",
-            "package_manifest.json",
-            "training_config.json",
-            "training_metrics.json",
-            "training_summary.json",
-        }
-        artifacts = [
-            p.name
-            for p in output_dir.iterdir()
-            if p.is_file() and p.name not in package_metadata_names
-        ]
+        artifacts = [path.name for path in weight_files]
         emit(
             "result",
             job_id,
