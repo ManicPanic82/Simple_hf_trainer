@@ -204,8 +204,7 @@ class WorkerProcess(QObject):
                 continue
             if len(line.encode("utf-8")) > MAX_BUFFERED_BYTES:
                 self.log_line.emit(
-                    "[stderr] output line exceeded "
-                    f"{MAX_BUFFERED_BYTES} bytes; line discarded."
+                    f"[stderr] output line exceeded {MAX_BUFFERED_BYTES} bytes; line discarded."
                 )
                 continue
             self.log_line.emit(line)

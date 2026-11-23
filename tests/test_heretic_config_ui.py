@@ -189,9 +189,7 @@ def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
         "heretic-1", message="Completed; selected trial queued to re-run."
     )
     tab._job_manager.submit.assert_called_once_with(HERETIC, model_ref="org/model")
-    tab._build_config.assert_called_once_with(
-        "heretic-2", "org/model", interpreter, trial_index=1
-    )
+    tab._build_config.assert_called_once_with("heretic-2", "org/model", interpreter, trial_index=1)
     assert tab._active_job_id is None
     assert len(scheduled) == 1
     scheduled[0]()

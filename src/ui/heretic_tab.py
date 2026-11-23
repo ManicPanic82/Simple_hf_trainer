@@ -2357,9 +2357,7 @@ class HereticTab(TabPage):
                                 selected_config.model = self._selected_model()
                                 problems = selected_config.validate()
                                 if problems:
-                                    self._job_manager.mark_succeeded(
-                                        job_id, message=completion[1]
-                                    )
+                                    self._job_manager.mark_succeeded(job_id, message=completion[1])
                                     self.toml_status.setText("Issues: " + "; ".join(problems))
                                     self._fail_start(
                                         f"Cannot re-run selected trial: {problems[0]}",
@@ -2419,11 +2417,8 @@ class HereticTab(TabPage):
                                             # loop turn so that cleanup cannot clear its state.
                                             QTimer.singleShot(
                                                 0,
-                                                lambda job_id=rerun.job_id,
-                                                config=rerun_config,
-                                                script=worker_script,
-                                                python=interpreter: self._launch_job(
-                                                    job_id, config, python, script
+                                                lambda job_id=rerun.job_id, config=rerun_config, script=worker_script, python=interpreter: (
+                                                    self._launch_job(job_id, config, python, script)
                                                 ),
                                             )
                     else:
