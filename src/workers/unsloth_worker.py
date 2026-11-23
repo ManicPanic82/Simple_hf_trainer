@@ -658,7 +658,18 @@ def run_worker(cfg: dict) -> int:
             },
         )
 
-        artifacts = [path.name for path in weight_files]
+        package_metadata_files = {
+            "README.md",
+            "training_config.json",
+            "training_summary.json",
+            "training_metrics.json",
+            "package_manifest.json",
+        }
+        artifacts = sorted(
+            path.name
+            for path in output_dir.iterdir()
+            if path.is_file() and path.name not in package_metadata_files
+        )
         emit(
             "result",
             job_id,
