@@ -168,6 +168,9 @@ def test_unsloth_cancel_listener_starts_after_engine_import(monkeypatch, tmp_pat
 
         def save_pretrained_merged(self, path, tokenizer, save_method="merged_16bit"):
             events.append(f"merge:{save_method}")
+            target = Path(path)
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "model.safetensors").write_bytes(b"fake merged weights")
 
     class FakeTokenizer:
         def save_pretrained(self, path):  # pragma: no cover - stub
