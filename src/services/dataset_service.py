@@ -74,7 +74,7 @@ def inspect_dataset_file(
     """Inspect a single file or directory to determine dataset properties.
 
     ``lightweight`` reads schema-level metadata or a small header/sample. It
-    avoids full row counts for text formats during local library discovery.
+    avoids full row counts for large text datasets during local discovery.
     """
     if not file_path.exists():
         return None
