@@ -656,6 +656,7 @@ class TrainingTab(TabPage):
             self.loss_label.setText("Loss: —")
             self.eval_loss_label.setText("Eval loss: —")
             self.dashboard.reset()
+            self.dashboard.begin_run()
 
             scratch_dir = self._storage.path_for("outputs_dir") / ".scratch"
             scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -749,6 +750,7 @@ class TrainingTab(TabPage):
         elif msg.type is MessageType.PROGRESS:
             frac = float(payload.get("fraction", 0.0))
             self.progress_bar.setValue(int(frac * 100))
+            self.dashboard.set_progress(frac)
             step = payload.get("step")
             total = payload.get("total")
             if step is not None:
@@ -804,6 +806,7 @@ class TrainingTab(TabPage):
         self.console.append(f"[protocol warning] {error}")
 
     def _on_worker_exited(self, exit_code: int) -> None:
+        self.dashboard.finish_run()
         if self._active_job_id:
             job_id = self._active_job_id
             snapshot = self._job_manager.snapshot(job_id)
@@ -849,6 +852,7 @@ class TrainingTab(TabPage):
         self.cancel_button.setEnabled(False)
 
     def _on_worker_failed_to_start(self, error: str) -> None:
+        self.dashboard.finish_run()
         if self._active_job_id:
             self._job_manager.mark_failed(self._active_job_id, message=f"Failed to start: {error}")
             self._active_job_id = None
