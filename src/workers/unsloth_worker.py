@@ -371,6 +371,33 @@ def run_worker(cfg: dict) -> int:
         )
 
         print("[checkpoint] LoRA configured successfully", file=sys.stderr, flush=True)
+        model_config = getattr(model, "config", None)
+        def config_value(name):
+            value = getattr(model_config, name, None)
+            return value if isinstance(value, (str, int, float, bool)) else None
+
+        peft_configs = getattr(model, "peft_config", {}) or {}
+        active_peft = next(iter(peft_configs.values()), None) if hasattr(peft_configs, "values") else None
+        target_modules = getattr(active_peft, "target_modules", None)
+        if isinstance(target_modules, (set, tuple, list)):
+            target_modules = ", ".join(sorted(str(item) for item in target_modules))
+        elif target_modules is not None:
+            target_modules = str(target_modules)
+        architecture = {
+            "model_type": config_value("model_type"),
+            "num_hidden_layers": config_value("num_hidden_layers") or config_value("n_layer"),
+            "hidden_size": config_value("hidden_size") or config_value("n_embd"),
+            "num_attention_heads": config_value("num_attention_heads") or config_value("n_head"),
+            "num_key_value_heads": config_value("num_key_value_heads"),
+            "intermediate_size": config_value("intermediate_size"),
+            "vocab_size": config_value("vocab_size"),
+            "max_position_embeddings": config_value("max_position_embeddings"),
+            "lora_rank": lora_r,
+            "lora_alpha": lora_alpha,
+            "target_modules": target_modules,
+            "precision": "4-bit base + LoRA adapters",
+        }
+        emit("result", job_id, {"kind": "architecture", "architecture": architecture})
         emit(
             "log",
             job_id,
@@ -432,9 +459,16 @@ def run_worker(cfg: dict) -> int:
                 if len(metric_record) > 1:
                     metrics_history.append(metric_record)
                 step = int(state.global_step)
-                if "loss" in logs:
-                    loss_val = float(logs["loss"])
-                    emit("metric", job_id, {"name": "loss", "value": loss_val, "step": step})
+                for metric_name, metric_value in metric_record.items():
+                    if metric_name == "step":
+                        continue
+                    emit(
+                        "metric",
+                        job_id,
+                        {"name": metric_name, "value": metric_value, "step": step},
+                    )
+                if "loss" in metric_record:
+                    loss_val = metric_record["loss"]
                     emit(
                         "log",
                         job_id,
@@ -443,13 +477,8 @@ def run_worker(cfg: dict) -> int:
                             "level": "info",
                         },
                     )
-                if "eval_loss" in logs:
-                    eval_loss = float(logs["eval_loss"])
-                    emit(
-                        "metric",
-                        job_id,
-                        {"name": "eval_loss", "value": eval_loss, "step": step},
-                    )
+                if "eval_loss" in metric_record:
+                    eval_loss = metric_record["eval_loss"]
                     emit(
                         "log",
                         job_id,
@@ -475,7 +504,7 @@ def run_worker(cfg: dict) -> int:
                 emit(
                     "progress",
                     job_id,
-                    {"fraction": round(frac, 3), "step": step, "total": progress_total_steps},
+                    {"fraction": round(frac, 3), "step": step, "total": progress_total_steps, "epoch": float(state.epoch) if state.epoch is not None else None},
                 )
 
         print("[checkpoint] Trainer/TRL imports complete", file=sys.stderr, flush=True)
