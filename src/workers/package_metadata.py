@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -130,7 +130,7 @@ def write_training_package(
 
     manifest = {
         "schema_version": 1,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "package_type": (
             "lora_adapter" if config.get("export_strategy") == "adapter" else "merged_model"
         ),
@@ -242,7 +242,7 @@ def write_heretic_package(
         data_root / "dataset_manifest.json",
         {
             "schema_version": 1,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "datasets": dataset_entries,
             "note": (
                 "Hugging Face dataset IDs are recorded with their configured split and column. "
@@ -263,7 +263,7 @@ def write_heretic_package(
         output_dir / "heretic_summary.json",
         {
             "schema_version": 1,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             **(summary or {}),
         },
     )
@@ -271,7 +271,7 @@ def write_heretic_package(
         output_dir / "package_manifest.json",
         {
             "schema_version": 1,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "package_type": "heretic_modified_model",
             **metadata,
             "datasets": dataset_entries,
