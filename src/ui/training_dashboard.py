@@ -6,7 +6,7 @@ import math
 import time
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QPainter, QPen, QPalette
 from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
 
 
@@ -44,8 +44,8 @@ class MetricChart(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(42, 12, -14, -30)
         palette = self.palette()
-        muted = palette.color(palette.ColorRole.PlaceholderText)
-        foreground = palette.color(palette.ColorRole.Text)
+        muted = palette.color(QPalette.ColorRole.PlaceholderText)
+        foreground = palette.color(QPalette.ColorRole.Text)
         painter.setPen(QPen(muted, 1))
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
         painter.drawLine(rect.topLeft(), rect.bottomLeft())
@@ -74,8 +74,8 @@ class MetricChart(QWidget):
         painter.drawText(4, rect.bottom(), f"{min_y:.3g}")
         painter.drawText(rect.left(), self.height() - 7, str(min_x))
         painter.drawText(rect.right() - 35, self.height() - 7, str(max_x))
-        colors = [palette.color(palette.ColorRole.Highlight), foreground,
-                  palette.color(palette.ColorRole.Link)]
+        colors = [palette.color(QPalette.ColorRole.Highlight), foreground,
+                  palette.color(QPalette.ColorRole.Link)]
         for index, name in enumerate(self.series):
             points = self.history[name]
             if not points:
@@ -120,7 +120,7 @@ class ArchitectureView(QWidget):
         palette = self.palette()
         muted = palette.color(palette.ColorRole.PlaceholderText)
         text = palette.color(palette.ColorRole.Text)
-        accent = palette.color(palette.ColorRole.Highlight)
+        accent = palette.color(QPalette.ColorRole.Highlight)
         if not self.metadata:
             painter.setPen(muted)
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
@@ -157,7 +157,6 @@ class TrainingDashboard(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._values: dict[str, str] = {}
         self._started_at: float | None = None
         self._progress_fraction: float | None = None
         self._clock = QTimer(self)
@@ -216,14 +215,16 @@ class TrainingDashboard(QWidget):
         self._clock.stop()
         self._started_at = None
         self._progress_fraction = None
-        for key, label in self.stat_labels.items():
+        for label in self.stat_labels.values():
             title = label.text().split(":", 1)[0]
             label.setText(f"{title}: —")
         self.loss_chart.clear()
         self.lr_chart.clear()
         self.architecture.clear()
         self.architecture_title.setText("Loaded model architecture")
-        self.architecture_details.setText("Layer dimensions and adapter targets are reported by the loaded model.")
+        self.architecture_details.setText(
+            "Layer dimensions and adapter targets are reported by the loaded model."
+        )
 
     def begin_run(self) -> None:
         self._started_at = time.monotonic()
@@ -263,12 +264,25 @@ class TrainingDashboard(QWidget):
         self.architecture_title.setText(
             f"Loaded architecture · {model_type}" + (f" · {layers} layers" if layers else "")
         )
-        detail_keys = ("hidden_size", "num_attention_heads", "num_key_value_heads",
-                       "intermediate_size", "max_position_embeddings", "lora_rank",
-                       "lora_alpha", "target_modules", "precision")
-        details = [f"{key.replace('_', ' ')}: {metadata[key]}"
-                   for key in detail_keys if metadata.get(key) is not None]
-        self.architecture_details.setText("   ·   ".join(details) or "Architecture metadata received.")
+        detail_keys = (
+            "hidden_size",
+            "num_attention_heads",
+            "num_key_value_heads",
+            "intermediate_size",
+            "max_position_embeddings",
+            "lora_rank",
+            "lora_alpha",
+            "target_modules",
+            "precision",
+        )
+        details = [
+            f"{key.replace('_', ' ')}: {metadata[key]}"
+            for key in detail_keys
+            if metadata.get(key) is not None
+        ]
+        self.architecture_details.setText(
+            "   ·   ".join(details) or "Architecture metadata received."
+        )
 
     def add_metric(self, name: str, step: int, value: float) -> None:
         if not math.isfinite(value):
