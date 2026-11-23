@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from workers.package_metadata import write_heretic_package, write_training_package
+from workers.package_metadata import (
+    snapshot_training_datasets,
+    write_heretic_package,
+    write_training_package,
+)
 
 
 def test_training_package_archives_exact_train_and_eval_files(tmp_path: Path) -> None:
@@ -107,3 +111,28 @@ column = "text"
     assert (output / "heretic_metrics.json").is_file()
     assert (output / "heretic_summary.json").is_file()
     assert (output / "README.md").is_file()
+
+
+def test_training_uses_a_snapshot_and_records_original_dataset_path(tmp_path: Path) -> None:
+    source = tmp_path / "train.jsonl"
+    source.write_text('{"text":"original"}\\n', encoding="utf-8")
+    snapshot, train_copy, eval_copy = snapshot_training_datasets(source, None)
+    try:
+        source.write_text('{"text":"changed after start"}\\n', encoding="utf-8")
+        assert train_copy.read_text(encoding="utf-8") == '{"text":"original"}\\n'
+        output = tmp_path / "model"
+        output.mkdir()
+        manifest = write_training_package(
+            output_dir=output,
+            config={"model_name": "org/model", "export_strategy": "adapter"},
+            metrics=[],
+            summary={"status": "completed"},
+            train_dataset=train_copy,
+            eval_dataset=eval_copy,
+            train_dataset_source=source,
+        )
+        archived = output / "training_data" / "train" / "train.jsonl"
+        assert archived.read_text(encoding="utf-8") == '{"text":"original"}\\n'
+        assert manifest["datasets"][0]["source_path"] == str(source.resolve())
+    finally:
+        snapshot.cleanup()
