@@ -59,11 +59,14 @@ def _service(rec: LocalDatasetRecord, *, valid: bool = True) -> MagicMock:
 
 
 def _tab(tmp_path: Path, rec: LocalDatasetRecord, *, valid: bool = True) -> DatasetsTab:
+    service = _service(rec, valid=valid)
     tab = DatasetsTab(
         AppState(),
         StorageService(_settings(tmp_path)),
-        _service(rec, valid=valid),
+        service,
+        scan_on_init=False,
     )
+    tab._on_local_scan_results([rec])
     tab.local_table.selectRow(0)
     return tab
 
@@ -144,7 +147,13 @@ def test_invalid_split_updates_readiness_pill(qapp, tmp_path) -> None:
         return result
 
     service.preview_dataset.side_effect = preview
-    tab = DatasetsTab(AppState(), StorageService(_settings(tmp_path)), service)
+    tab = DatasetsTab(
+        AppState(),
+        StorageService(_settings(tmp_path)),
+        service,
+        scan_on_init=False,
+    )
+    tab._on_local_scan_results([_record(train)])
     tab.local_table.selectRow(0)
     tab.split_combo.setCurrentIndex(_split_index(tab, test))
 
