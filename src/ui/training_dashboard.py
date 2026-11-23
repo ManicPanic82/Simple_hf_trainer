@@ -235,6 +235,10 @@ class TrainingDashboard(QWidget):
         self._progress_fraction = max(0.0, min(1.0, float(fraction)))
         self._update_clock()
 
+    def finish_run(self) -> None:
+        self._clock.stop()
+        self.stat_labels["remaining"].setText("Est. remaining: Complete")
+
     def _update_clock(self) -> None:
         if self._started_at is None:
             return
