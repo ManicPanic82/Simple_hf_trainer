@@ -18,6 +18,8 @@ import threading
 import traceback
 from pathlib import Path
 
+from package_metadata import write_heretic_package
+
 # stdout is reserved for the JSON-lines protocol. OutputInterceptor replaces
 # sys.stdout while Heretic runs, so keep a private handle to the real stream;
 # emitting through the interceptor would recurse back into emit() forever.
@@ -367,6 +369,30 @@ column = "text"
             emit("error", job_id, {"message": message})
             emit("job_complete", job_id, {"success": False, "exit_code": 1, "message": message})
             return 1
+        if has_full_config and model_action == "save":
+            write_heretic_package(
+                output_dir=output_dir,
+                job_dir=Path(cfg.get("job_dir", output_dir.parent)),
+                config_toml=toml_content,
+                metadata={
+                    "application": "Simple HF Trainer",
+                    "job_id": job_id,
+                    "source_model": model_name,
+                    "heretic_version": version,
+                    "export_strategy": export_strategy,
+                    "trials": trials,
+                },
+            )
+            artifacts = [p.name for p in output_dir.iterdir() if p.is_file()]
+            emit(
+                "log",
+                job_id,
+                {
+                    "message": "Archived Heretic configuration and dataset provenance with the model.",
+                    "level": "info",
+                    "stream": "system",
+                },
+            )
         emit(
             "result",
             job_id,
