@@ -175,6 +175,7 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     dataset.write_text('{"text":"hi"}\n', encoding="utf-8")
     cfg = tab._build_config("job-x", "a-model", str(dataset))
     assert cfg["export_strategy"] == "merged_16bit"
+    assert cfg["eval_dataset_path"] is None
 
     tab.export_combo.setCurrentIndex(1)
     cfg = tab._build_config("job-y", "a-model", str(dataset))
