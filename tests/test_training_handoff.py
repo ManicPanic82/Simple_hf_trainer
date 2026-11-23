@@ -179,3 +179,38 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     tab.export_combo.setCurrentIndex(1)
     cfg = tab._build_config("job-y", "a-model", str(dataset))
     assert cfg["export_strategy"] == "adapter"
+
+
+
+def test_all_training_controls_are_serialized(qapp, tmp_path: Path) -> None:
+    tab = _make_tab(
+        tmp_path,
+        job_manager=MagicMock(),
+        model_service=MagicMock(),
+        state=MagicMock(),
+    )
+    train_path = tmp_path / "train.jsonl"
+    eval_path = tmp_path / "eval.jsonl"
+    train_path.write_text('{"text":"train"}\\n', encoding="utf-8")
+    eval_path.write_text('{"text":"eval"}\\n', encoding="utf-8")
+    tab.steps_spin.setValue(0)
+    tab.epochs_spin.setValue(4)
+    tab.warmup_spin.setValue(12)
+    tab.optimizer_combo.setCurrentIndex(1)
+    tab.save_strategy_combo.setCurrentIndex(1)
+    tab.save_steps_spin.setValue(25)
+    tab.eval_strategy_combo.setCurrentIndex(1)
+    tab.eval_steps_spin.setValue(10)
+    tab.eval_dataset_combo.addItem("evaluation", str(eval_path))
+    tab.eval_dataset_combo.setCurrentIndex(tab.eval_dataset_combo.count() - 1)
+
+    cfg = tab._build_config("job-config", "a-model", str(train_path))
+    assert cfg["max_steps"] == 0
+    assert cfg["num_train_epochs"] == 4
+    assert cfg["warmup_steps"] == 12
+    assert cfg["optim"] == "adamw_torch"
+    assert cfg["save_strategy"] == "steps"
+    assert cfg["save_steps"] == 25
+    assert cfg["eval_strategy"] == "steps"
+    assert cfg["eval_steps"] == 10
+    assert cfg["eval_dataset_path"] == str(eval_path)
