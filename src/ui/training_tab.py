@@ -780,15 +780,15 @@ class TrainingTab(TabPage):
             line = payload.get("message", "")
             self.console.append(str(line))
 
+        elif msg.type is MessageType.ARCHITECTURE:
+            metadata = payload.get("architecture")
+            if isinstance(metadata, dict):
+                self.dashboard.set_architecture(metadata)
+
         elif msg.type is MessageType.RESULT:
-            if payload.get("kind") == "architecture":
-                metadata = payload.get("architecture")
-                if isinstance(metadata, dict):
-                    self.dashboard.set_architecture(metadata)
-            else:
-                out_dir = payload.get("output_dir", "")
-                if out_dir:
-                    self.last_adapter_row.set_value(out_dir)
+            out_dir = payload.get("output_dir", "")
+            if out_dir:
+                self.last_adapter_row.set_value(out_dir)
 
         elif msg.type is MessageType.JOB_COMPLETE:
             success = bool(payload.get("success", False))
