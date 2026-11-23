@@ -66,7 +66,9 @@ def test_start_schedules_both_initial_discovery_scans(window: MainWindow) -> Non
     assert window._models_scan_timer.isActive()
     assert window._datasets_scan_timer.isActive()
 
-    window._stop_startup_scan_timers()
+    window.closeEvent(_close_event())
+    assert not window._models_scan_timer.isActive()
+    assert not window._datasets_scan_timer.isActive()
 
 
 def test_clean_close_calls_super_and_accepts(window: MainWindow) -> None:
