@@ -31,6 +31,7 @@ class MessageType(StrEnum):
     PROGRESS = "progress"
     LOG = "log"
     METRIC = "metric"
+    ARCHITECTURE = "architecture"
     RESULT = "result"
     ERROR = "error"
     CANCEL = "cancel"
@@ -43,6 +44,7 @@ JOB_SCOPED_TYPES = frozenset(
         MessageType.PROGRESS,
         MessageType.LOG,
         MessageType.METRIC,
+        MessageType.ARCHITECTURE,
         MessageType.RESULT,
         MessageType.ERROR,
         MessageType.CANCEL,
