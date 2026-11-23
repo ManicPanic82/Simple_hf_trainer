@@ -49,6 +49,7 @@ def test_every_documented_type_has_a_valid_example() -> None:
         MessageType.PROGRESS: ({"fraction": 0.0}, "job-2"),
         MessageType.LOG: ({"message": "starting", "level": "info"}, "job-2"),
         MessageType.METRIC: ({"name": "loss", "value": 1.5, "step": 3}, "job-2"),
+        MessageType.ARCHITECTURE: ({"architecture": {"model_type": "llama"}}, "job-2"),
         MessageType.RESULT: ({"output_dir": "C:\\out"}, "job-2"),
         MessageType.ERROR: ({"message": "boom", "recoverable": False}, "job-2"),
         MessageType.CANCEL: ({"reason": "user"}, "job-2"),
