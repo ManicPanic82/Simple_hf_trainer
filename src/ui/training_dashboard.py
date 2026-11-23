@@ -118,8 +118,8 @@ class ArchitectureView(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         palette = self.palette()
-        muted = palette.color(palette.ColorRole.PlaceholderText)
-        text = palette.color(palette.ColorRole.Text)
+        muted = palette.color(QPalette.ColorRole.PlaceholderText)
+        text = palette.color(QPalette.ColorRole.Text)
         accent = palette.color(QPalette.ColorRole.Highlight)
         if not self.metadata:
             painter.setPen(muted)
