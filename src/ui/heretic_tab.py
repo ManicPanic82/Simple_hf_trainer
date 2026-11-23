@@ -1776,6 +1776,7 @@ class HereticTab(TabPage):
             "trials": headless.n_trials,
             "export_strategy": headless.export_strategy,
             "output_dir": str(model_dir),
+            "job_dir": str(job_dir),
             "toml": headless.to_toml(),
         }
         self._write_provenance(job_dir, job_id, model_name, headless, interpreter)
