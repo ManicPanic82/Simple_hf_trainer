@@ -12,6 +12,7 @@ from ui.training_tab import TrainingTab
 from workers.job_manager import JobState
 from workers.protocol import MessageType, WorkerMessage
 
+
 def _make_tab(
     tmp_path: Path, *, job_manager: MagicMock, model_service: MagicMock, state: MagicMock
 ):
@@ -39,6 +40,7 @@ def _make_tab(
         dataset_service=MagicMock(),
     )
 
+
 def _worker_messages(job_id: str, output_dir: Path) -> list[WorkerMessage]:
     return [
         WorkerMessage(type=MessageType.HELLO, payload={"pid": 1234}),
@@ -56,6 +58,7 @@ def _worker_messages(job_id: str, output_dir: Path) -> list[WorkerMessage]:
             job_id=job_id,
         ),
     ]
+
 
 def test_successful_job_publishes_scanned_models(qapp, tmp_path: Path) -> None:
     state = MagicMock()
@@ -83,6 +86,7 @@ def test_successful_job_publishes_scanned_models(qapp, tmp_path: Path) -> None:
     state.notify.assert_any_call("info", "LoRA fine-tuning completed successfully!")
     assert tab._active_job_id is None
     assert tab.start_button.isEnabled()
+
 
 def test_unknown_hardware_advisory_does_not_block_start(qapp, tmp_path: Path, monkeypatch) -> None:
     state = MagicMock()
@@ -137,6 +141,7 @@ def test_unknown_hardware_advisory_does_not_block_start(qapp, tmp_path: Path, mo
     assert tab.start_button.isEnabled()
     assert "incompatible" not in log.lower()
 
+
 def test_no_advisory_when_model_and_gpu_are_known(qapp, tmp_path: Path) -> None:
     state = MagicMock()
     state.hardware = HardwareSnapshot(gpu=GpuStats(name="NVIDIA GeForce RTX 4090"))
@@ -160,6 +165,7 @@ def test_no_advisory_when_model_and_gpu_are_known(qapp, tmp_path: Path) -> None:
 
     assert tab._compatibility_advisory(str(known_model.path)) is None
 
+
 def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     tab = _make_tab(
         tmp_path,
@@ -179,6 +185,7 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     tab.export_combo.setCurrentIndex(1)
     cfg = tab._build_config("job-y", "a-model", str(dataset))
     assert cfg["export_strategy"] == "adapter"
+
 
 def test_all_training_controls_are_serialized(qapp, tmp_path: Path) -> None:
     tab = _make_tab(
