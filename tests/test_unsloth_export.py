@@ -188,3 +188,12 @@ def test_evaluation_requires_dataset_before_engine_import(monkeypatch, tmp_path:
     assert "trained" not in events
     errors = [payload for kind, _job, payload in emitted if kind == "error"]
     assert "evaluation dataset is required" in errors[0]["message"]
+
+
+
+def test_evaluation_strategy_argument_supports_legacy_transformers_alias() -> None:
+    class LegacySFTConfig:
+        def __init__(self, evaluation_strategy="no"):
+            self.evaluation_strategy = evaluation_strategy
+
+    assert worker_module.evaluation_strategy_argument(LegacySFTConfig) == "evaluation_strategy"
