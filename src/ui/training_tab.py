@@ -493,6 +493,13 @@ class TrainingTab(TabPage):
             lr_val = float(self.lr_edit.text().strip())
         except ValueError:
             lr_val = 2e-4
+        eval_data = self.eval_dataset_combo.currentData()
+        if eval_data == "":
+            eval_dataset_path = None
+        elif eval_data is None:
+            eval_dataset_path = self.eval_dataset_combo.currentText().strip() or None
+        else:
+            eval_dataset_path = str(eval_data)
         return {
             "job_id": job_id,
             "model_name": model_name,
@@ -511,11 +518,7 @@ class TrainingTab(TabPage):
             "save_steps": self.save_steps_spin.value(),
             "eval_strategy": self.eval_strategy_combo.currentData() or "no",
             "eval_steps": self.eval_steps_spin.value(),
-            "eval_dataset_path": (
-                self.eval_dataset_combo.currentData()
-                or self.eval_dataset_combo.currentText().strip()
-                or None
-            ),
+            "eval_dataset_path": eval_dataset_path,
             "export_strategy": self.export_combo.currentData() or "merged_16bit",
         }
 
