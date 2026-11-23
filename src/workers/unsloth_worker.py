@@ -504,7 +504,13 @@ def run_worker(cfg: dict) -> int:
                 emit(
                     "progress",
                     job_id,
-                    {"fraction": round(frac, 3), "step": step, "total": progress_total_steps, "epoch": float(state.epoch) if state.epoch is not None else None},
+                    {
+                        "fraction": round(frac, 3),
+                        "training_fraction": min(1.0, step / max(1, progress_total_steps)),
+                        "step": step,
+                        "total": progress_total_steps,
+                        "epoch": float(state.epoch) if state.epoch is not None else None,
+                    },
                 )
 
         print("[checkpoint] Trainer/TRL imports complete", file=sys.stderr, flush=True)
