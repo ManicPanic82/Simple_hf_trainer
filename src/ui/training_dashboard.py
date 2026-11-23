@@ -74,14 +74,20 @@ class MetricChart(QWidget):
         painter.drawText(4, rect.bottom(), f"{min_y:.3g}")
         painter.drawText(rect.left(), self.height() - 7, str(min_x))
         painter.drawText(rect.right() - 35, self.height() - 7, str(max_x))
-        colors = [palette.color(QPalette.ColorRole.Highlight), foreground,
-                  palette.color(QPalette.ColorRole.Link)]
+        colors = [
+            palette.color(QPalette.ColorRole.Highlight),
+            foreground,
+            palette.color(QPalette.ColorRole.Link),
+        ]
+        legend_x = rect.left() + 6
         for index, name in enumerate(self.series):
             points = self.history[name]
             if not points:
                 continue
-            pen = QPen(colors[index % len(colors)], 2)
-            painter.setPen(pen)
+            color = colors[index % len(colors)]
+            painter.setPen(QPen(color, 2))
+            painter.drawText(legend_x, rect.top() + 12, name)
+            legend_x += painter.fontMetrics().horizontalAdvance(name) + 18
             previous = None
             for step, value in points:
                 x = rect.left() + (step - min_x) / (max_x - min_x) * rect.width()
