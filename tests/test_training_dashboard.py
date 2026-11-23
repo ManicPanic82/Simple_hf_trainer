@@ -95,10 +95,9 @@ def test_training_tab_routes_architecture_and_metrics_to_dashboard(qapp, tmp_pat
     tab = TrainingTab(AppState(), StorageService(settings))
     tab._on_worker_message(
         WorkerMessage(
-            type=MessageType.RESULT,
+            type=MessageType.ARCHITECTURE,
             job_id="job-1",
             payload={
-                "kind": "architecture",
                 "architecture": {"model_type": "llama", "num_hidden_layers": 12},
             },
         )
