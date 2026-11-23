@@ -688,6 +688,7 @@ class TrainingTab(TabPage):
 
     def _handle_setup_failure(self, job_id: str, error: Exception) -> None:
         """Fail a job whose worker could not be prepared or started."""
+        self.dashboard.finish_run()
         self._job_manager.mark_failed(
             job_id,
             message=f"Could not prepare training job: {error}",
@@ -806,11 +807,14 @@ class TrainingTab(TabPage):
         self.console.append(f"[protocol warning] {error}")
 
     def _on_worker_exited(self, exit_code: int) -> None:
-        self.dashboard.finish_run()
         if self._active_job_id:
             job_id = self._active_job_id
             snapshot = self._job_manager.snapshot(job_id)
             completion = self._pending_completion
+            if completion is not None and completion[0] and exit_code == 0:
+                self.progress_bar.setValue(100)
+                self.dashboard.set_progress(1.0)
+            self.dashboard.finish_run()
 
             if snapshot is not None and snapshot.state.value == "cancelling":
                 failed_job = self._job_manager.handle_worker_exit(job_id, exit_code)
