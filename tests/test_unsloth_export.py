@@ -120,6 +120,8 @@ def test_default_export_is_merged_16bit(monkeypatch, tmp_path: Path) -> None:
     results = [payload for t, _job, payload in emitted if t == "result"]
     assert results[0]["export_strategy"] == "merged_16bit"
     assert "config.json" in results[0]["artifacts"]
+    assert (tmp_path / "out" / "training_data" / "train" / "dataset.jsonl").is_file()
+    assert (tmp_path / "out" / "training_config.json").is_file()
 
 
 def test_adapter_export_keeps_previous_behaviour(monkeypatch, tmp_path: Path) -> None:
@@ -131,6 +133,10 @@ def test_adapter_export_keeps_previous_behaviour(monkeypatch, tmp_path: Path) ->
     assert not [e for e in events if e.startswith("merged:")]
     results = [payload for t, _job, payload in emitted if t == "result"]
     assert results[0]["export_strategy"] == "adapter"
+    assert (
+        tmp_path / "out" / "training_data" / "train" / "dataset.jsonl"
+    ).is_file()
+    assert (tmp_path / "out" / "training_config.json").is_file()
 
 
 def test_invalid_export_strategy_fails_cleanly(monkeypatch, tmp_path: Path) -> None:
