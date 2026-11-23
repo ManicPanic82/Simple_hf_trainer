@@ -54,6 +54,14 @@ def test_lightweight_dataset_inspection_skips_full_row_count(tmp_path: Path):
     assert csv_record.row_count is None
     assert csv_record.columns == ["prompt", "response"]
 
+    json_file = tmp_path / "small.json"
+    json_file.write_text('[{"text":"ready"}]', encoding="utf-8")
+    json_record = inspect_dataset_file(json_file, lightweight=True)
+
+    assert json_record is not None
+    assert json_record.row_count == 1
+    assert json_record.columns == ["text"]
+
 def test_preview_dataset_and_validation(tmp_path: Path):
     service = DatasetService(StorageService(AppSettings()))
 
