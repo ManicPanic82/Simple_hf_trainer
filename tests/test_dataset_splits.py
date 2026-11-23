@@ -96,7 +96,7 @@ def test_split_combo_lists_real_data_files(qapp, tmp_path) -> None:
     assert tab.split_combo.isEnabled() is True
     # The selected file is the initial split.
     assert tab._selected_split_path == train
-    tab._service.preview_dataset.assert_called_with(train, num_rows=10)
+    tab._service.preview_dataset.assert_called_with(train, num_rows=100)
 
 
 def test_selecting_split_repreviews_and_actions_use_selected_file(qapp, tmp_path) -> None:
@@ -106,7 +106,7 @@ def test_selecting_split_repreviews_and_actions_use_selected_file(qapp, tmp_path
     tab._service.preview_dataset.reset_mock()
     tab.split_combo.setCurrentIndex(_split_index(tab, test))
 
-    tab._service.preview_dataset.assert_called_once_with(test, num_rows=10)
+    tab._service.preview_dataset.assert_called_once_with(test, num_rows=100)
     assert tab._selected_split_path == test
     assert tab.val_pill.text() == "Ready"
     assert tab.use_in_training_btn.isEnabled() is True
@@ -172,7 +172,7 @@ def test_single_data_file_disables_split_combo(qapp, tmp_path) -> None:
     assert tab.split_combo.count() == 1
     assert tab.split_combo.isEnabled() is False
     assert tab.split_combo.itemText(0) == only.name
-    tab._service.preview_dataset.assert_called_with(only, num_rows=10)
+    tab._service.preview_dataset.assert_called_with(only, num_rows=100)
 
 
 def test_directory_record_lists_only_real_data_files(qapp, tmp_path) -> None:
