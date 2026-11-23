@@ -99,8 +99,11 @@ class TrainingTab(TabPage):
         # Hyperparameters
         grid.addWidget(QLabel("Max Steps:", cfg_card), 2, 0)
         self.steps_spin = QSpinBox(cfg_card)
-        self.steps_spin.setRange(1, 10000)
+        self.steps_spin.setRange(0, 100000)
         self.steps_spin.setValue(5)
+        self.steps_spin.setToolTip(
+            "Set to 0 to train for the configured number of epochs instead of a fixed step count."
+        )
         grid.addWidget(self.steps_spin, 2, 1)
 
         grid.addWidget(QLabel("Batch Size:", cfg_card), 2, 2)
@@ -132,9 +135,66 @@ class TrainingTab(TabPage):
         self.alpha_spin.setValue(16)
         grid.addWidget(self.alpha_spin, 4, 3)
 
+        # Epoch-based training is selected by setting Max Steps to zero.
+        grid.addWidget(QLabel("Epochs:", cfg_card), 5, 0)
+        self.epochs_spin = QSpinBox(cfg_card)
+        self.epochs_spin.setRange(1, 1000)
+        self.epochs_spin.setValue(3)
+        grid.addWidget(self.epochs_spin, 5, 1)
+
+        grid.addWidget(QLabel("Warmup Steps:", cfg_card), 5, 2)
+        self.warmup_spin = QSpinBox(cfg_card)
+        self.warmup_spin.setRange(0, 100000)
+        self.warmup_spin.setValue(0)
+        grid.addWidget(self.warmup_spin, 5, 3)
+
+        grid.addWidget(QLabel("Optimizer:", cfg_card), 6, 0)
+        self.optimizer_combo = QComboBox(cfg_card)
+        self.optimizer_combo.addItem("AdamW 8-bit (low VRAM)", "adamw_8bit")
+        self.optimizer_combo.addItem("AdamW (PyTorch)", "adamw_torch")
+        self.optimizer_combo.addItem("Paged AdamW 8-bit", "paged_adamw_8bit")
+        self.optimizer_combo.setToolTip(
+            "8-bit optimizers reduce optimizer memory. Availability depends on the installed "
+            "bitsandbytes/Unsloth environment."
+        )
+        grid.addWidget(self.optimizer_combo, 6, 1, 1, 3)
+
+        grid.addWidget(QLabel("Save Strategy:", cfg_card), 7, 0)
+        self.save_strategy_combo = QComboBox(cfg_card)
+        self.save_strategy_combo.addItem("Disabled", "no")
+        self.save_strategy_combo.addItem("Every N steps", "steps")
+        self.save_strategy_combo.addItem("Every epoch", "epoch")
+        grid.addWidget(self.save_strategy_combo, 7, 1)
+
+        grid.addWidget(QLabel("Save Interval:", cfg_card), 7, 2)
+        self.save_steps_spin = QSpinBox(cfg_card)
+        self.save_steps_spin.setRange(1, 100000)
+        self.save_steps_spin.setValue(50)
+        grid.addWidget(self.save_steps_spin, 7, 3)
+
+        grid.addWidget(QLabel("Evaluation:", cfg_card), 8, 0)
+        self.eval_strategy_combo = QComboBox(cfg_card)
+        self.eval_strategy_combo.addItem("Disabled", "no")
+        self.eval_strategy_combo.addItem("Every N steps", "steps")
+        self.eval_strategy_combo.addItem("Every epoch", "epoch")
+        grid.addWidget(self.eval_strategy_combo, 8, 1)
+
+        grid.addWidget(QLabel("Eval Interval:", cfg_card), 8, 2)
+        self.eval_steps_spin = QSpinBox(cfg_card)
+        self.eval_steps_spin.setRange(1, 100000)
+        self.eval_steps_spin.setValue(50)
+        grid.addWidget(self.eval_steps_spin, 8, 3)
+
+        grid.addWidget(QLabel("Evaluation Dataset:", cfg_card), 9, 0)
+        self.eval_dataset_combo = QComboBox(cfg_card)
+        self.eval_dataset_combo.setEditable(True)
+        self.eval_dataset_combo.setPlaceholderText("Optional; required when evaluation is enabled")
+        self.eval_dataset_combo.addItem("No evaluation dataset", "")
+        grid.addWidget(self.eval_dataset_combo, 9, 1, 1, 3)
+
         # Export strategy. A merged fp16 model can be picked as the base model
         # for a later continued-training job; adapter-only stays small.
-        grid.addWidget(QLabel("Export:", cfg_card), 5, 0)
+        grid.addWidget(QLabel("Export:", cfg_card), 10, 0)
         self.export_combo = QComboBox(cfg_card)
         self.export_combo.addItem("Merged model (16-bit) — reusable base", "merged_16bit")
         self.export_combo.addItem("Adapter only (LoRA)", "adapter")
@@ -143,7 +203,7 @@ class TrainingTab(TabPage):
             "selected as the base model for continued training. It needs several GB of "
             "disk space and RAM. Adapter only saves the small LoRA modules."
         )
-        grid.addWidget(self.export_combo, 5, 1, 1, 3)
+        grid.addWidget(self.export_combo, 10, 1, 1, 3)
 
         cfg_card.add_layout(grid)
         self.add(cfg_card)
@@ -249,11 +309,21 @@ class TrainingTab(TabPage):
 
     def _update_dataset_choices(self, datasets: list[LocalDatasetRecord]) -> None:
         curr = self.dataset_combo.currentText()
+        eval_curr = self.eval_dataset_combo.currentText()
         self.dataset_combo.clear()
+        self.eval_dataset_combo.clear()
+        self.eval_dataset_combo.addItem("No evaluation dataset", "")
         for d in datasets:
             self.dataset_combo.addItem(d.name, str(d.path))
+            self.eval_dataset_combo.addItem(d.name, str(d.path))
         if curr:
             self.select_dataset(curr)
+        if eval_curr:
+            idx = self.eval_dataset_combo.findText(eval_curr)
+            if idx >= 0:
+                self.eval_dataset_combo.setCurrentIndex(idx)
+            else:
+                self.eval_dataset_combo.setEditText(eval_curr)
 
     def refresh(self) -> None:
         validation = self._storage.validate("outputs_dir")
@@ -354,6 +424,33 @@ class TrainingTab(TabPage):
             )
             return
 
+        eval_strategy = self.eval_strategy_combo.currentData() or "no"
+        eval_dataset = (
+            self.eval_dataset_combo.currentData() or self.eval_dataset_combo.currentText().strip()
+        )
+        if eval_strategy != "no":
+            if not eval_dataset or not Path(str(eval_dataset)).is_file():
+                self._state.notify(
+                    "error",
+                    "Choose an existing local evaluation dataset when evaluation is enabled.",
+                )
+                return
+            if Path(str(eval_dataset)).resolve() == Path(str(dataset_path)).resolve():
+                self._state.notify(
+                    "error",
+                    "Training and evaluation datasets must be different files.",
+                )
+                return
+
+        try:
+            learning_rate = float(self.lr_edit.text().strip())
+        except ValueError:
+            self._state.notify("error", "Learning rate must be a valid positive number.")
+            return
+        if not 0 < learning_rate < 1:
+            self._state.notify("error", "Learning rate must be greater than 0 and less than 1.")
+            return
+
         unsloth_status = self._registry.status(UNSLOTH)
         interpreter = unsloth_status.interpreter
         if not interpreter or not interpreter.is_file():
@@ -407,6 +504,18 @@ class TrainingTab(TabPage):
             "learning_rate": lr_val,
             "lora_r": self.r_spin.value(),
             "lora_alpha": self.alpha_spin.value(),
+            "num_train_epochs": self.epochs_spin.value(),
+            "warmup_steps": self.warmup_spin.value(),
+            "optim": self.optimizer_combo.currentData() or "adamw_8bit",
+            "save_strategy": self.save_strategy_combo.currentData() or "no",
+            "save_steps": self.save_steps_spin.value(),
+            "eval_strategy": self.eval_strategy_combo.currentData() or "no",
+            "eval_steps": self.eval_steps_spin.value(),
+            "eval_dataset_path": (
+                self.eval_dataset_combo.currentData()
+                or self.eval_dataset_combo.currentText().strip()
+                or None
+            ),
             "export_strategy": self.export_combo.currentData() or "merged_16bit",
         }
 
