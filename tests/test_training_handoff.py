@@ -221,9 +221,10 @@ def test_merged_model_name_defaults_from_source_and_rejects_unsafe_names(
         model_service=MagicMock(),
         state=MagicMock(),
     )
-    assert tab._resolve_output_model_name(
-        "unsloth/Qwen2.5-0.5B-Instruct", ""
-    ) == "Qwen2.5-0.5B-Instruct-finetuned"
+    assert (
+        tab._resolve_output_model_name("unsloth/Qwen2.5-0.5B-Instruct", "")
+        == "Qwen2.5-0.5B-Instruct-finetuned"
+    )
     for invalid in ("../overwrite", "bad/name", "CON", "trailing.", "x" * 121):
         with pytest.raises(ValueError, match="valid Windows folder name"):
             tab._resolve_output_model_name("source-model", invalid)
