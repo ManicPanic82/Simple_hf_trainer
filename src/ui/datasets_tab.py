@@ -471,33 +471,36 @@ class DatasetsTab(TabPage):
 
     @staticmethod
     def _candidate_data_files(path: Path) -> list[Path]:
-        """List real data files available for a selected dataset.
-
-        A dataset may be a single file or a directory (for example a downloaded
-        Hub snapshot whose splits are stored as ``train-00000-of-00001.parquet``
-        files). File names are returned as-is; split names are never invented.
-        """
+        """List real dataset files, including files in nested split directories."""
         directory = path if path.is_dir() else path.parent
-        candidates: dict[str, Path] = {}
+        candidates: set[Path] = set()
         try:
-            entries = list(directory.iterdir())
+            candidates.update(
+                entry
+                for entry in directory.rglob("*")
+                if entry.is_file() and entry.suffix.lower() in _DATA_FILE_SUFFIXES
+            )
         except OSError:
-            entries = []
-        for entry in entries:
-            if entry.is_file() and entry.suffix.lower() in _DATA_FILE_SUFFIXES:
-                candidates[entry.name] = entry
+            pass
+
         # Always include the selected file itself, even with an unusual suffix.
         if path.is_file():
-            candidates[path.name] = path
-        return [candidates[name] for name in sorted(candidates, key=str.lower)]
+            candidates.add(path)
+
+        return sorted(
+            candidates,
+            key=lambda item: item.relative_to(directory).as_posix().lower(),
+        )
 
     def _populate_split_combo(self, rec: LocalDatasetRecord) -> None:
         """Fill the split/file selector with the dataset's actual data files."""
         files = self._candidate_data_files(rec.path)
+        directory = rec.path if rec.path.is_dir() else rec.path.parent
         with QSignalBlocker(self.split_combo):
             self.split_combo.clear()
             for file_path in files:
-                self.split_combo.addItem(file_path.name, file_path)
+                label = file_path.relative_to(directory).as_posix()
+                self.split_combo.addItem(label, file_path)
             # A selector with a single choice adds no value.
             self.split_combo.setEnabled(len(files) > 1)
             if files:
