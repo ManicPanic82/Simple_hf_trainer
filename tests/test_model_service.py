@@ -194,3 +194,35 @@ def test_inspect_model_directory_accepts_standalone_gguf(tmp_path: Path):
 
     assert record is not None
     assert record.format == "gguf"
+
+
+
+def test_get_hub_model_info_separates_architecture_from_pipeline_task(
+    tmp_path: Path, monkeypatch
+):
+    settings = AppSettings(
+        paths=PathSettings(
+            models_dir=tmp_path / "m",
+            datasets_dir=tmp_path / "d",
+            outputs_dir=tmp_path / "o",
+            hf_cache_dir=tmp_path / "c",
+        )
+    )
+    service = ModelService(StorageService(settings))
+    mock_info = MagicMock()
+    mock_info.siblings = []
+    mock_info.author = "Qwen"
+    mock_info.pipeline_tag = "text-generation"
+    mock_info.config = {
+        "architectures": ["Qwen2ForCausalLM"],
+        "model_type": "qwen2",
+    }
+    mock_api = MagicMock()
+    mock_api.model_info.return_value = mock_info
+    monkeypatch.setattr("huggingface_hub.HfApi", lambda *args, **kwargs: mock_api)
+
+    info = service.get_hub_model_info("Qwen/Qwen2.5-0.5B-Instruct")
+
+    assert info["architecture"] == "Qwen2ForCausalLM"
+    assert info["model_type"] == "qwen2"
+    assert info["pipeline_tag"] == "text-generation"
