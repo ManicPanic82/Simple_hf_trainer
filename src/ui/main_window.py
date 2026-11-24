@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
 
 from app.state import Notice
 from services.engine_registry import EngineState, EngineStatus
-from ui.components import Pill
 from ui.analytics_tab import AnalyticsTab
+from ui.components import Pill
 from ui.datasets_tab import DatasetsTab
 from ui.heretic_tab import HereticTab
 from ui.models_tab import ModelsTab
