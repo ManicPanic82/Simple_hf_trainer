@@ -1,10 +1,10 @@
 # Project roadmap
 
-This roadmap preserves the four-tab product contract: **Models, Datasets, Training, Heretic**. It is an implementation and acceptance plan, not permission to expand the product into chat, agents, RAG, hosted training, or additional tabs.
+This roadmap preserves the six-tab product contract: **Models, Datasets, Training, Analytics, Heretic, Ollama Export**. It is an implementation and acceptance plan, not permission to expand the product into chat, agents, RAG, or hosted training.
 
 ## Phase 1 — Stabilise the desktop and worker foundation
 
-- [x] Preserve the four-tab desktop shell and isolated engine environments.
+- [x] Preserve the six-tab desktop shell and isolated engine environments.
 - [x] Keep GPU ownership centralised so Unsloth and Heretic cannot run concurrently.
 - [x] Keep worker protocol output separate from engine logs and provide bounded cancellation.
 - [ ] Re-run lifecycle, queue, cancellation, restart and failure-path tests on Windows.
@@ -49,7 +49,28 @@ This roadmap preserves the four-tab product contract: **Models, Datasets, Traini
 
 **Exit criteria:** a complete small abliteration can be configured, run, inspected and exported from the GUI.
 
-## Phase 6 — Windows acceptance and release preparation
+## Phase 6 — Complete Analytics
+
+- [x] Route real Unsloth metrics and loaded model architecture into the dedicated Analytics workspace.
+- [x] Plot loss, evaluation loss, learning rate, gradient norm, throughput and hardware utilisation.
+- [x] Summarise discovered datasets and show persisted terminal job history.
+- [ ] Verify metric charts and hardware history during a real Windows training run.
+- [ ] Add per-run metric persistence and comparison only after the live pipeline is accepted.
+
+**Exit criteria:** Analytics displays only real measurements and clearly distinguishes live-session metrics from persisted job summaries.
+
+## Phase 7 — Complete Ollama Export
+
+- [x] Convert merged Hugging Face model folders to F16 GGUF using llama.cpp.
+- [x] Offer Q4_K_M, Q5_K_M, Q8_0 and F16 export paths.
+- [x] Import the resulting GGUF with Ollama and verify it with `ollama show`.
+- [x] Protect source models and refuse to overwrite existing export artifacts.
+- [ ] Run a full Windows conversion/import test with the selected llama.cpp and Ollama installations.
+- [ ] Evaluate a safe adapter-merge workflow as a separate enhancement; adapter-only folders are currently rejected.
+
+**Exit criteria:** a merged local Hugging Face model can be converted, imported and verified without modifying its source.
+
+## Phase 8 — Windows acceptance and release preparation
 
 - [ ] Run the complete pytest and Ruff suites in the application environment.
 - [ ] Perform GUI acceptance on Windows 10/11 with the target 6 GB GPU.
