@@ -200,3 +200,27 @@ def test_cancel_button_requests_worker_cancellation(qapp, tmp_path, monkeypatch)
     assert worker._cancel_event.is_set()
     assert not tab.cancel_download_button.isEnabled()
     assert "Cancelling" in tab.download_status_label.text()
+
+
+
+def test_download_rejects_empty_hub_repository(tmp_path, monkeypatch):
+    service = make_service(tmp_path)
+    install_hub_mocks(monkeypatch, [])
+    destination = tmp_path / "models" / "empty-model"
+
+    with pytest.raises(ValueError, match="contains no files"):
+        service.download_model("org/empty", destination=destination)
+
+    assert not destination.exists()
+
+
+def test_download_rejects_repository_without_model_artifacts(tmp_path, monkeypatch):
+    service = make_service(tmp_path)
+    install_hub_mocks(monkeypatch, ["README.md", "tokenizer.json"])
+    destination = tmp_path / "models" / "not-a-model"
+
+    with pytest.raises(ValueError, match="recognised model configuration"):
+        service.download_model("org/not-a-model", destination=destination)
+
+    assert (destination / "README.md").is_file()
+    assert (destination / "tokenizer.json").is_file()
