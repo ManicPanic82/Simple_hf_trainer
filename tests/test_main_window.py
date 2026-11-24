@@ -5,10 +5,10 @@ from __future__ import annotations
 from ui.main_window import MainWindow
 
 
-def test_main_window_starts_with_exactly_four_workflow_tabs(context) -> None:
+def test_main_window_starts_with_exactly_six_workflow_tabs(context) -> None:
     window = MainWindow(context)
     try:
-        assert window.tab_names() == ["Models", "Datasets", "Training", "Heretic"]
+        assert window.tab_names() == [\n            "Models", "Datasets", "Training", "Analytics", "Heretic", "Ollama Export"\n        ]
         assert window.tabs.count() == 4
         assert not hasattr(window, "analytics_tab")
     finally:
