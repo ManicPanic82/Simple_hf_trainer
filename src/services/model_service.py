@@ -376,6 +376,12 @@ class ModelService:
                     files.append({"filename": rfilename, "size": size})
 
             size_mb = round(total_size / (1024 * 1024), 1)
+            config = getattr(info, "config", None) or {}
+            if not isinstance(config, dict):
+                config = {}
+            architectures = config.get("architectures") or []
+            architecture = architectures[0] if architectures else None
+            model_type = config.get("model_type")
             vram_status, vram_detail = estimate_vram_compatibility(
                 None,
                 size_mb,
@@ -387,7 +393,9 @@ class ModelService:
             return {
                 "repo_id": repo_id,
                 "author": getattr(info, "author", "") or repo_id.split("/")[0],
-                "pipeline_tag": getattr(info, "pipeline_tag", "") or "text-generation",
+                "pipeline_tag": getattr(info, "pipeline_tag", "") or "",
+                "architecture": architecture,
+                "model_type": model_type,
                 "downloads": getattr(info, "downloads", 0) or 0,
                 "likes": getattr(info, "likes", 0) or 0,
                 "tags": getattr(info, "tags", []) or [],
