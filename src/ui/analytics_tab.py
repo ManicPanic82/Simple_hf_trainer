@@ -199,6 +199,9 @@ class AnalyticsTab(TabPage):
         if getattr(snapshot, "ram_percent", None) is not None:
             self.gpu_chart.add_point("RAM %", stamp, float(snapshot.ram_percent))
 
+    def refresh(self) -> None:
+        self.refresh_history()
+
     def refresh_history(self) -> None:
         jobs = list(self._job_manager.history())
         jobs.extend(job for job in self._job_manager.jobs() if job.is_active)
