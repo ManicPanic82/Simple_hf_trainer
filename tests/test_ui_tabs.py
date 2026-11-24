@@ -305,10 +305,7 @@ def test_heretic_setup_failure_releases_gpu_lock(qapp, tmp_path: Path) -> None:
     assert not tab.cancel_button.isEnabled()
 
 
-
-def test_local_model_library_keeps_name_column_readable_and_resizable(
-    qapp, tmp_path: Path
-) -> None:
+def test_local_model_library_keeps_name_column_readable_and_resizable(qapp, tmp_path: Path) -> None:
     settings = settings_with(
         tmp_path,
         models_dir=tmp_path / "models",
@@ -327,7 +324,6 @@ def test_local_model_library_keeps_name_column_readable_and_resizable(
     assert header.sectionResizeMode(4) == QHeaderView.ResizeMode.Stretch
 
 
-
 def test_hub_metadata_displays_architecture_separately_from_task(qapp, tmp_path):
     settings = settings_with(
         tmp_path,
@@ -336,9 +332,7 @@ def test_hub_metadata_displays_architecture_separately_from_task(qapp, tmp_path)
         outputs_dir=tmp_path / "outputs",
         hf_cache_dir=tmp_path / "cache",
     )
-    tab = ModelsTab(
-        AppState(), StorageService(settings), scan_on_init=False
-    )
+    tab = ModelsTab(AppState(), StorageService(settings), scan_on_init=False)
     tab._selected_hub_model = HubModelRecord(
         repo_id="org/model",
         author="org",
@@ -360,6 +354,4 @@ def test_hub_metadata_displays_architecture_separately_from_task(qapp, tmp_path)
         },
     )
 
-    assert tab.compat_arch_row.value.text() == (
-        "Qwen2ForCausalLM · Task: text-generation"
-    )
+    assert tab.compat_arch_row.value.text() == ("Qwen2ForCausalLM · Task: text-generation")

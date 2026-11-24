@@ -109,6 +109,7 @@ def test_scan_services_write_records_into_catalog(tmp_path: Path) -> None:
     model_dir = models_dir / "model-a"
     model_dir.mkdir()
     (model_dir / "config.json").write_text(json.dumps({"model_type": "llama"}), encoding="utf-8")
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
     (datasets_dir / "sample.jsonl").write_text(
         json.dumps({"instruction": "hi", "output": "hello"}) + "\n", encoding="utf-8"
     )

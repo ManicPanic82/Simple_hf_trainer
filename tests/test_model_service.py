@@ -165,13 +165,10 @@ def test_model_size_excludes_archived_training_data(tmp_path: Path):
     assert record.size_mb == 2.0
 
 
-
 def test_inspect_model_directory_rejects_config_without_weights(tmp_path: Path):
     model_dir = tmp_path / "incomplete-model"
     model_dir.mkdir()
-    (model_dir / "config.json").write_text(
-        json.dumps({"model_type": "llama"}), encoding="utf-8"
-    )
+    (model_dir / "config.json").write_text(json.dumps({"model_type": "llama"}), encoding="utf-8")
 
     assert inspect_model_directory(model_dir) is None
 
@@ -179,9 +176,7 @@ def test_inspect_model_directory_rejects_config_without_weights(tmp_path: Path):
 def test_inspect_model_directory_rejects_adapter_without_weights(tmp_path: Path):
     adapter_dir = tmp_path / "incomplete-adapter"
     adapter_dir.mkdir()
-    (adapter_dir / "adapter_config.json").write_text(
-        json.dumps({"r": 8}), encoding="utf-8"
-    )
+    (adapter_dir / "adapter_config.json").write_text(json.dumps({"r": 8}), encoding="utf-8")
 
     assert inspect_model_directory(adapter_dir) is None
 
@@ -197,10 +192,7 @@ def test_inspect_model_directory_accepts_standalone_gguf(tmp_path: Path):
     assert record.format == "gguf"
 
 
-
-def test_get_hub_model_info_separates_architecture_from_pipeline_task(
-    tmp_path: Path, monkeypatch
-):
+def test_get_hub_model_info_separates_architecture_from_pipeline_task(tmp_path: Path, monkeypatch):
     settings = AppSettings(
         paths=PathSettings(
             models_dir=tmp_path / "m",

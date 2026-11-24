@@ -127,7 +127,7 @@ class ModelsTab(TabPage):
         model_service: ModelService | None = None,
         parent: QWidget | None = None,
         *,
-        scan_on_init: bool = True,
+        scan_on_init: bool = False,
     ) -> None:
         super().__init__(
             "Models",
@@ -265,9 +265,7 @@ class ModelsTab(TabPage):
         self.library_table.setColumnWidth(1, 80)
         self.library_table.setColumnWidth(2, 100)
         self.library_table.setColumnWidth(3, 100)
-        self.library_table.setHorizontalScrollMode(
-            self.library_table.ScrollMode.ScrollPerPixel
-        )
+        self.library_table.setHorizontalScrollMode(self.library_table.ScrollMode.ScrollPerPixel)
         self.library_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.library_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.library_table.itemSelectionChanged.connect(self._on_local_model_selected)

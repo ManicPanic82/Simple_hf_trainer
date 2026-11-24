@@ -34,6 +34,7 @@ def test_settings_models_and_datasets_survive_a_fresh_start(tmp_path: Path, qapp
     model_dir = folders["models_dir"] / "local-model"
     model_dir.mkdir()
     (model_dir / "config.json").write_text(json.dumps({"model_type": "llama"}), encoding="utf-8")
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
     (folders["datasets_dir"] / "prepared.jsonl").write_text('{"text":"hello"}\n', encoding="utf-8")
 
     settings_file = tmp_path / "settings.json"

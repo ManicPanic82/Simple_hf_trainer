@@ -161,9 +161,7 @@ def test_models_tab_refreshes_asynchronously_after_model_changes(qapp, tmp_path,
 
     state = AppState()
     service = StubService()
-    tab = ModelsTab(
-        state, StorageService(settings), model_service=service, scan_on_init=False
-    )
+    tab = ModelsTab(state, StorageService(settings), model_service=service, scan_on_init=False)
 
     assert tab._models_changed_connected is True
     state.publish_models([])
@@ -201,7 +199,6 @@ def test_cancel_button_requests_worker_cancellation(qapp, tmp_path, monkeypatch)
     assert "Cancelling" in tab.download_status_label.text()
 
 
-
 def test_download_rejects_empty_hub_repository(tmp_path, monkeypatch):
     service = make_service(tmp_path)
     install_hub_mocks(monkeypatch, [])
@@ -223,7 +220,6 @@ def test_download_rejects_repository_without_model_artifacts(tmp_path, monkeypat
 
     assert (destination / "README.md").is_file()
     assert (destination / "tokenizer.json").is_file()
-
 
 
 def test_initial_library_scan_populates_table_in_background(qapp, tmp_path, wait_for):
