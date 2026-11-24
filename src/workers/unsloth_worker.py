@@ -200,7 +200,10 @@ def estimate_causal_lm_parameters(config) -> int | None:
     """Conservatively estimate decoder-only parameter count from a HF config."""
     # Composite vision/audio models need architecture-specific accounting. Refuse
     # to guess rather than underestimating their full fine-tuning footprint.
-    if any(getattr(config, name, None) is not None for name in ("text_config", "vision_config", "audio_config")):
+    if any(
+        getattr(config, name, None) is not None
+        for name in ("text_config", "vision_config", "audio_config")
+    ):
         return None
     hidden = getattr(config, "hidden_size", None) or getattr(config, "n_embd", None)
     layers = getattr(config, "num_hidden_layers", None) or getattr(config, "n_layer", None)
@@ -214,10 +217,13 @@ def estimate_causal_lm_parameters(config) -> int | None:
     kv_width = hidden * kv_heads // heads
     attention = 2 * hidden * hidden + 2 * hidden * kv_width
     activation = str(getattr(config, "hidden_act", "")).lower()
-    experts = getattr(config, "num_local_experts", None) or getattr(config, "num_experts", None) or 1
+    experts = (
+        getattr(config, "num_local_experts", None) or getattr(config, "num_experts", None) or 1
+    )
     if not isinstance(experts, int) or experts < 1:
         return None
-    mlp = 3 * hidden * intermediate if activation in {"silu", "swiglu", "gelu_new"} else 2 * hidden * intermediate
+    mlp_multiplier = 3 if activation in {"silu", "swiglu", "gelu_new"} else 2
+    mlp = mlp_multiplier * hidden * intermediate
     mlp *= experts
     embeddings = vocab * hidden
     if not bool(getattr(config, "tie_word_embeddings", False)):
@@ -289,7 +295,16 @@ def run_worker(cfg: dict) -> int:
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if (training_method == "full_finetune") != (export_strategy == "full_model"):
-        emit("error", job_id, {"message": "Full fine-tuning requires full_model export; adapter methods require merged_16bit or adapter export."})
+        emit(
+            "error",
+            job_id,
+            {
+                "message": (
+                    "Full fine-tuning requires full_model export; adapter methods require "
+                    "merged_16bit or adapter export."
+                )
+            },
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if export_strategy not in {"full_model", "merged_16bit", "adapter"}:
@@ -331,11 +346,19 @@ def run_worker(cfg: dict) -> int:
         or weight_decay < 0
         or max_grad_norm < 0
     ):
-        emit("error", job_id, {"message": "Weight decay and max gradient norm must be finite and non-negative."})
+        emit(
+            "error",
+            job_id,
+            {"message": "Weight decay and max gradient norm must be finite and non-negative."},
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if lr_scheduler_type not in {"cosine", "linear", "constant", "constant_with_warmup"}:
-        emit("error", job_id, {"message": f"Unsupported learning-rate scheduler: {lr_scheduler_type!r}"})
+        emit(
+            "error",
+            job_id,
+            {"message": f"Unsupported learning-rate scheduler: {lr_scheduler_type!r}"},
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if optim not in {"adamw_8bit", "adamw_torch", "paged_adamw_8bit"}:
@@ -361,7 +384,11 @@ def run_worker(cfg: dict) -> int:
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if resume_from_checkpoint and not Path(resume_from_checkpoint).is_dir():
-        emit("error", job_id, {"message": f"Resume checkpoint folder not found: {resume_from_checkpoint}"})
+        emit(
+            "error",
+            job_id,
+            {"message": f"Resume checkpoint folder not found: {resume_from_checkpoint}"},
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if eval_strategy != "no" and not eval_dataset_path_str:
@@ -417,7 +444,9 @@ def run_worker(cfg: dict) -> int:
             raise ValueError("BF16 was selected, but the active CUDA GPU does not support BF16.")
         if training_method == "full_finetune":
             if not torch.cuda.is_available():
-                raise RuntimeError("Full fine-tuning requires a CUDA GPU; no CUDA device is available.")
+                raise RuntimeError(
+                    "Full fine-tuning requires a CUDA GPU; no CUDA device is available."
+                )
             model_config_for_preflight = AutoConfig.from_pretrained(
                 model_name, trust_remote_code=False
             )
@@ -458,7 +487,16 @@ def run_worker(cfg: dict) -> int:
         emit("ready", payload={"engine": "unsloth", "version": engine_version})
         print("[checkpoint] READY emitted", file=sys.stderr, flush=True)
     except Exception as error:
-        emit("error", job_id, {"message": f"Failed to initialize Unsloth or validate the training hardware: {error}"})
+        emit(
+            "error",
+            job_id,
+            {
+                "message": (
+                    "Failed to initialize Unsloth or validate the training hardware: "
+                    f"{error}"
+                )
+            },
+        )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
 
@@ -501,7 +539,17 @@ def run_worker(cfg: dict) -> int:
                 parameter.requires_grad_(True)
             if getattr(model, "config", None) is not None:
                 model.config.use_cache = False
-            emit("log", job_id, {"message": "Full fine-tuning enabled: all model weights are trainable; no adapters are attached.", "level": "info"})
+            emit(
+                "log",
+                job_id,
+                {
+                    "message": (
+                        "Full fine-tuning enabled: all model weights are trainable; "
+                        "no adapters are attached."
+                    ),
+                    "level": "info",
+                },
+            )
         model_config = getattr(model, "config", None)
 
         def config_value(name):
@@ -764,7 +812,11 @@ def run_worker(cfg: dict) -> int:
 
         output_dir.mkdir(parents=True, exist_ok=True)
         if export_strategy == "full_model":
-            emit("log", job_id, {"message": "Saving the complete fine-tuned model checkpoint...", "level": "info"})
+            emit(
+                "log",
+                job_id,
+                {"message": "Saving the complete fine-tuned model checkpoint...", "level": "info"},
+            )
             model.save_pretrained(str(output_dir), safe_serialization=True)
             tokenizer.save_pretrained(str(output_dir))
             print("[checkpoint] Full model checkpoint saved", file=sys.stderr, flush=True)
