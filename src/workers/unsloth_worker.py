@@ -198,6 +198,10 @@ def evaluation_strategy_argument(config_class) -> str:
 
 def estimate_causal_lm_parameters(config) -> int | None:
     """Conservatively estimate decoder-only parameter count from a HF config."""
+    # Composite vision/audio models need architecture-specific accounting. Refuse
+    # to guess rather than underestimating their full fine-tuning footprint.
+    if any(getattr(config, name, None) is not None for name in ("text_config", "vision_config", "audio_config")):
+        return None
     hidden = getattr(config, "hidden_size", None) or getattr(config, "n_embd", None)
     layers = getattr(config, "num_hidden_layers", None) or getattr(config, "n_layer", None)
     intermediate = getattr(config, "intermediate_size", None) or getattr(config, "n_inner", None)
@@ -210,7 +214,11 @@ def estimate_causal_lm_parameters(config) -> int | None:
     kv_width = hidden * kv_heads // heads
     attention = 2 * hidden * hidden + 2 * hidden * kv_width
     activation = str(getattr(config, "hidden_act", "")).lower()
+    experts = getattr(config, "num_local_experts", None) or getattr(config, "num_experts", None) or 1
+    if not isinstance(experts, int) or experts < 1:
+        return None
     mlp = 3 * hidden * intermediate if activation in {"silu", "swiglu", "gelu_new"} else 2 * hidden * intermediate
+    mlp *= experts
     embeddings = vocab * hidden
     if not bool(getattr(config, "tie_word_embeddings", False)):
         embeddings += vocab * hidden
@@ -218,12 +226,21 @@ def estimate_causal_lm_parameters(config) -> int | None:
 
 
 def estimate_full_finetune_vram_bytes(
-    parameter_count: int, total_vram_bytes: int, precision: str, optimizer: str
+    parameter_count: int,
+    total_vram_bytes: int,
+    precision: str,
+    optimizer: str,
+    batch_size: int = 1,
+    max_seq_length: int = 256,
 ) -> int:
-    """Estimate weights, gradients, optimizer state and a modest activation reserve."""
+    """Estimate weights, gradients, optimizer state and activation reserve."""
     parameter_bytes = 8 if precision == "fp32" else 4
     optimizer_bytes = 8 if optimizer == "adamw_torch" else 3
-    activation_reserve = max(1024**3, int(total_vram_bytes * 0.15))
+    activation_reserve = max(
+        1024**3,
+        int(total_vram_bytes * 0.15),
+        int(256 * 1024**2 * batch_size * max_seq_length / 512),
+    )
     return parameter_count * (parameter_bytes + optimizer_bytes) + activation_reserve
 
 
@@ -412,7 +429,12 @@ def run_worker(cfg: dict) -> int:
                 )
             total_vram = int(torch.cuda.get_device_properties(0).total_memory)
             estimated_vram = estimate_full_finetune_vram_bytes(
-                parameter_count, total_vram, precision, optim
+                parameter_count,
+                total_vram,
+                precision,
+                optim,
+                batch_size=batch_size,
+                max_seq_length=max_seq_length,
             )
             safe_budget = int(total_vram * 0.85)
             emit(
