@@ -11,6 +11,7 @@ from services.hardware_monitor import GpuStats, HardwareSnapshot
 from ui.training_tab import TrainingTab
 from workers.job_manager import JobState
 from workers.protocol import MessageType, WorkerMessage
+from workers.unsloth_worker import estimate_causal_lm_parameters, estimate_full_finetune_vram_bytes
 
 
 def _make_tab(
@@ -83,7 +84,7 @@ def test_successful_job_publishes_scanned_models(qapp, tmp_path: Path) -> None:
 
     model_service.scan_local_models.assert_called_once_with()
     state.publish_models.assert_called_once_with(scanned)
-    state.notify.assert_any_call("info", "LoRA fine-tuning completed successfully!")
+    state.notify.assert_any_call("info", "Full fine-tuning completed successfully!")
     assert tab._active_job_id is None
     assert tab.start_button.isEnabled()
 
@@ -173,13 +174,25 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
         model_service=MagicMock(),
         state=MagicMock(),
     )
-    assert tab.export_combo.count() == 2
-    assert tab.export_combo.currentData() == "merged_16bit"
+    assert tab.training_method_combo.currentData() == "full_finetune"
+    assert tab.export_combo.count() == 1
+    assert tab.export_combo.currentData() == "full_model"
 
     dataset = tmp_path / "data.jsonl"
-    dataset.write_text('{"text":"hi"}\n', encoding="utf-8")
+    dataset.write_text('{"text":"hi"}\\n', encoding="utf-8")
     tab.output_model_name_edit.setText("My-Custom-Qwen")
+    full_cfg = tab._build_config("job-full", "a-model", str(dataset))
+    assert full_cfg["training_method"] == "full_finetune"
+    assert full_cfg["export_strategy"] == "full_model"
+    assert full_cfg["output_model_name"] == "My-Custom-Qwen"
+    assert Path(full_cfg["output_dir"]).name == "My-Custom-Qwen"
+
+    tab.training_method_combo.setCurrentIndex(1)
+    assert tab.training_method_combo.currentData() == "lora"
+    assert tab.export_combo.count() == 2
+    assert tab.export_combo.currentData() == "merged_16bit"
     cfg = tab._build_config("job-x", "a-model", str(dataset))
+    assert cfg["training_method"] == "lora"
     assert cfg["export_strategy"] == "merged_16bit"
     assert cfg["output_model_name"] == "My-Custom-Qwen"
     assert Path(cfg["output_dir"]).name == "My-Custom-Qwen"
@@ -192,6 +205,12 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     assert cfg["output_model_name"] == "adapter"
     assert cfg["output_dir"] == cfg["job_output_dir"]
     assert not tab.output_model_name_edit.isEnabled()
+
+    tab.training_method_combo.setCurrentIndex(2)
+    assert tab.training_method_combo.currentData() == "qlora"
+    assert tab.precision_combo.currentData() == "fp16"
+    assert not tab.precision_combo.isEnabled()
+    assert tab.r_spin.isEnabled()
 
 
 def test_training_rejects_output_folder_nested_in_source_model(qapp, tmp_path: Path) -> None:
@@ -251,6 +270,14 @@ def test_all_training_controls_are_serialized(qapp, tmp_path: Path) -> None:
     tab.eval_steps_spin.setValue(10)
     tab.eval_dataset_combo.addItem("evaluation", str(eval_path))
     tab.eval_dataset_combo.setCurrentIndex(tab.eval_dataset_combo.count() - 1)
+    tab.grad_accum_spin.setValue(4)
+    tab.gradient_checkpointing_check.setChecked(False)
+    tab.weight_decay_edit.setText("0.02")
+    tab.max_grad_norm_edit.setText("0.5")
+    tab.lr_scheduler_combo.setCurrentIndex(1)
+    resume_dir = tmp_path / "checkpoint-10"
+    resume_dir.mkdir()
+    tab.resume_checkpoint_edit.setText(str(resume_dir))
 
     cfg = tab._build_config("job-config", "a-model", str(train_path))
     assert cfg["max_steps"] == 0
@@ -262,3 +289,35 @@ def test_all_training_controls_are_serialized(qapp, tmp_path: Path) -> None:
     assert cfg["eval_strategy"] == "steps"
     assert cfg["eval_steps"] == 10
     assert cfg["eval_dataset_path"] == str(eval_path)
+    assert cfg["training_method"] == "full_finetune"
+    assert cfg["export_strategy"] == "full_model"
+    assert cfg["gradient_accumulation_steps"] == 4
+    assert cfg["gradient_checkpointing"] is False
+    assert cfg["weight_decay"] == 0.02
+    assert cfg["max_grad_norm"] == 0.5
+    assert cfg["lr_scheduler_type"] == "linear"
+    assert cfg["resume_from_checkpoint"] == str(resume_dir)
+
+
+def test_full_finetuning_memory_preflight_estimates_and_blocks_2b_on_6gb() -> None:
+    config = SimpleNamespace(
+        hidden_size=2048,
+        num_hidden_layers=24,
+        intermediate_size=5632,
+        vocab_size=152064,
+        num_attention_heads=16,
+        num_key_value_heads=4,
+        hidden_act="silu",
+        tie_word_embeddings=False,
+    )
+    parameter_count = estimate_causal_lm_parameters(config)
+    assert parameter_count is not None and parameter_count > 1_000_000_000
+    six_gib = 6 * 1024**3
+    required = estimate_full_finetune_vram_bytes(
+        parameter_count, six_gib, "fp16", "adamw_8bit"
+    )
+    assert required > int(six_gib * 0.85)
+
+
+def test_full_finetuning_parameter_estimate_requires_known_architecture() -> None:
+    assert estimate_causal_lm_parameters(SimpleNamespace()) is None
