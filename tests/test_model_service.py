@@ -95,6 +95,7 @@ def test_scan_local_models(tmp_path: Path):
     m1 = models_dir / "model-a"
     m1.mkdir()
     (m1 / "config.json").write_text(json.dumps({"model_type": "llama"}), encoding="utf-8")
+    (m1 / "model.safetensors").write_bytes(b"weights")
 
     # Create an adapter in outputs_dir
     a1 = outputs_dir / "adapter-job-1"
@@ -161,3 +162,35 @@ def test_model_size_excludes_archived_training_data(tmp_path: Path):
 
     assert record is not None
     assert record.size_mb == 2.0
+
+
+
+def test_inspect_model_directory_rejects_config_without_weights(tmp_path: Path):
+    model_dir = tmp_path / "incomplete-model"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text(
+        json.dumps({"model_type": "llama"}), encoding="utf-8"
+    )
+
+    assert inspect_model_directory(model_dir) is None
+
+
+def test_inspect_model_directory_rejects_adapter_without_weights(tmp_path: Path):
+    adapter_dir = tmp_path / "incomplete-adapter"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter_config.json").write_text(
+        json.dumps({"r": 8}), encoding="utf-8"
+    )
+
+    assert inspect_model_directory(adapter_dir) is None
+
+
+def test_inspect_model_directory_accepts_standalone_gguf(tmp_path: Path):
+    model_dir = tmp_path / "gguf-model"
+    model_dir.mkdir()
+    (model_dir / "model.gguf").write_bytes(b"gguf")
+
+    record = inspect_model_directory(model_dir)
+
+    assert record is not None
+    assert record.format == "gguf"
