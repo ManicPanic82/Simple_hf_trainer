@@ -374,7 +374,7 @@ class TrainingTab(TabPage):
         merged = self.export_combo.currentData() in {"merged_16bit", "full_model"}
         self.output_model_name_edit.setEnabled(merged)
         self.output_model_name_edit.setToolTip(
-            "Name of the merged model's folder in the Models library. Leave blank to "
+            "Name of the output model folder in the Models library. Leave blank to "
             "use the source model name with '-finetuned' appended. The source model "
             "is never modified."
             if merged
