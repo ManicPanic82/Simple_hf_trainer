@@ -321,6 +321,18 @@ def test_full_finetuning_memory_preflight_estimates_and_blocks_2b_on_6gb() -> No
         parameter_count, six_gib, "fp16", "adamw_8bit"
     )
     assert required > int(six_gib * 0.85)
+    long_sequence = estimate_full_finetune_vram_bytes(
+        parameter_count, six_gib, "fp16", "adamw_8bit", max_seq_length=4096
+    )
+    fp32_required = estimate_full_finetune_vram_bytes(
+        parameter_count, six_gib, "fp32", "adamw_8bit"
+    )
+    torch_adamw_required = estimate_full_finetune_vram_bytes(
+        parameter_count, six_gib, "fp16", "adamw_torch"
+    )
+    assert long_sequence > required
+    assert fp32_required > required
+    assert torch_adamw_required > required
 
 
 def test_full_finetuning_parameter_estimate_requires_known_architecture() -> None:
