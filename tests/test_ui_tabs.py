@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QHeaderView
 
 from app.state import AppState
 from services.engine_registry import EngineState, EngineStatus
@@ -302,3 +302,25 @@ def test_heretic_setup_failure_releases_gpu_lock(qapp, tmp_path: Path) -> None:
     assert tab._active_job_id is None
     assert tab.run_button.isEnabled()
     assert not tab.cancel_button.isEnabled()
+
+
+
+def test_local_model_library_keeps_name_column_readable_and_resizable(
+    qapp, tmp_path: Path
+) -> None:
+    settings = settings_with(
+        tmp_path,
+        models_dir=tmp_path / "models",
+        datasets_dir=tmp_path / "datasets",
+        outputs_dir=tmp_path / "outputs",
+        hf_cache_dir=tmp_path / "cache",
+    )
+    tab = ModelsTab(AppState(), StorageService(settings), scan_on_init=False)
+    header = tab.library_table.horizontalHeader()
+
+    assert tab.library_table.columnWidth(0) >= 300
+    assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Interactive
+    assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Interactive
+    assert header.sectionResizeMode(2) == QHeaderView.ResizeMode.Interactive
+    assert header.sectionResizeMode(3) == QHeaderView.ResizeMode.Interactive
+    assert header.sectionResizeMode(4) == QHeaderView.ResizeMode.Stretch
