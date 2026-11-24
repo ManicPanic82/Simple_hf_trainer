@@ -511,7 +511,11 @@ class ModelsTab(TabPage):
 
     def _scan_library(self, *, publish: bool) -> None:
         worker = self._scan_worker
-        if worker is not None and worker.isRunning():
+        if worker is not None:
+            # Keep ownership until its finished signal is handled. A thread can
+            # stop running just before that queued signal reaches the GUI; do
+            # not replace the reference and let the old callback clear a new
+            # worker's state.
             self._scan_pending = True
             self._scan_pending_publish = self._scan_pending_publish or publish
             return
