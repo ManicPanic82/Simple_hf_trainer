@@ -101,10 +101,16 @@ class AnalyticsTab(TabPage):
         self.loss_chart = HistoryChart(("loss", "eval_loss"), self)
         self.lr_chart = HistoryChart(("learning_rate",), self)
         self.gpu_chart = HistoryChart(("GPU %", "VRAM %", "RAM %"), self)
+        self.performance_chart = HistoryChart(("grad_norm", "tokens_per_second"), self)
+        self.evaluation_chart = HistoryChart(
+            ("eval_accuracy", "eval_f1", "eval_precision", "eval_recall"), self
+        )
         for index, (title, chart) in enumerate((
             ("Training and evaluation loss", self.loss_chart),
             ("Learning-rate schedule", self.lr_chart),
             ("Hardware utilisation", self.gpu_chart),
+            ("Training performance", self.performance_chart),
+            ("Evaluation metrics", self.evaluation_chart),
         )):
             column = index % 2
             row = index // 2
@@ -174,6 +180,10 @@ class AnalyticsTab(TabPage):
             self.loss_chart.add_point(name, step, value)
         elif name == "learning_rate":
             self.lr_chart.add_point(name, step, value)
+        elif name in self.performance_chart.points:
+            self.performance_chart.add_point(name, step, value)
+        elif name in self.evaluation_chart.points:
+            self.evaluation_chart.add_point(name, step, value)
         self.overview.setText(
             f"Latest: step {step} · {name} {value:.5g} · "
             f"job {item.get('job_id') or 'current'}"
