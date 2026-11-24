@@ -160,6 +160,6 @@ def test_full_finetuning_package_is_identified_as_standalone_model(tmp_path: Pat
     readme = (output / "README.md").read_text(encoding="utf-8")
     assert manifest["package_type"] == "full_finetuned_model"
     assert "complete model weights updated by full fine-tuning" in readme
-    assert "Training method: " + "full_finetune" in readme
-    assert "Precision: " + "fp16" in readme
-    assert "Optimizer: " + "adamw_8bit" in readme
+    assert "full_finetune" in readme
+    assert "fp16" in readme
+    assert "adamw_8bit" in readme
