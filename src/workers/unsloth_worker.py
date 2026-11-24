@@ -216,15 +216,14 @@ def estimate_causal_lm_parameters(config) -> int | None:
         return None
     kv_width = hidden * kv_heads // heads
     attention = 2 * hidden * hidden + 2 * hidden * kv_width
-    activation = str(getattr(config, "hidden_act", "")).lower()
     experts = (
         getattr(config, "num_local_experts", None) or getattr(config, "num_experts", None) or 1
     )
     if not isinstance(experts, int) or experts < 1:
         return None
-    mlp_multiplier = 3 if activation in {"silu", "swiglu", "gelu_new"} else 2
-    mlp = mlp_multiplier * hidden * intermediate
-    mlp *= experts
+    # Assume a gated three-projection MLP even for two-projection models. This
+    # intentionally overestimates memory rather than allowing an unsafe launch.
+    mlp = 3 * hidden * intermediate * experts
     embeddings = vocab * hidden
     if not bool(getattr(config, "tie_word_embeddings", False)):
         embeddings += vocab * hidden
