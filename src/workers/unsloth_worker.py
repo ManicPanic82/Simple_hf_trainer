@@ -455,7 +455,8 @@ def run_worker(cfg: dict) -> int:
                     "Cannot safely estimate this model's full fine-tuning memory. "
                     "Full fine-tuning was stopped before model loading."
                 )
-            total_vram = int(torch.cuda.get_device_properties(0).total_memory)
+            free_vram, total_vram = torch.cuda.mem_get_info(0)
+            total_vram = int(total_vram)
             estimated_vram = estimate_full_finetune_vram_bytes(
                 parameter_count,
                 total_vram,
@@ -464,14 +465,15 @@ def run_worker(cfg: dict) -> int:
                 batch_size=batch_size,
                 max_seq_length=max_seq_length,
             )
-            safe_budget = int(total_vram * 0.85)
+            safe_budget = int(free_vram * 0.85)
             emit(
                 "log",
                 job_id,
                 {"message": (
                     f"Full fine-tuning preflight: approximately {parameter_count:,} parameters; "
                     f"estimated {estimated_vram / 1024**3:.2f} GiB required, "
-                    f"{total_vram / 1024**3:.2f} GiB GPU memory available."
+                    f"{free_vram / 1024**3:.2f} GiB currently free "
+                    f"({total_vram / 1024**3:.2f} GiB total).
                 ), "level": "info"},
             )
             if estimated_vram > safe_budget:
@@ -519,6 +521,22 @@ def run_worker(cfg: dict) -> int:
             load_in_4bit=training_method == "qlora",
         )
         print("[checkpoint] Model loaded successfully", file=sys.stderr, flush=True)
+        if training_method == "full_finetune":
+            actual_parameter_count = sum(parameter.numel() for parameter in model.parameters())
+            actual_required_vram = estimate_full_finetune_vram_bytes(
+                actual_parameter_count,
+                total_vram,
+                precision,
+                optim,
+                batch_size=batch_size,
+                max_seq_length=max_seq_length,
+            )
+            if actual_required_vram > safe_budget:
+                raise RuntimeError(
+                    "Full fine-tuning stopped after model loading because the actual parameter "
+                    f"count requires an estimated {actual_required_vram / 1024**3:.2f} GiB, "
+                    f"above the safe preflight budget of {safe_budget / 1024**3:.2f} GiB."
+                )
         emit("progress", job_id, {"fraction": 0.15, "step": 0, "total": max_steps})
 
         if training_method in {"lora", "qlora"}:
