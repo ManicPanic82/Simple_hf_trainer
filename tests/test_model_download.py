@@ -138,7 +138,7 @@ def test_download_model_keeps_signature_compatible(tmp_path, monkeypatch):
     assert destination.is_dir()
 
 
-def test_models_tab_connects_models_changed_to_scan_local_models(qapp, tmp_path):
+def test_models_tab_refreshes_asynchronously_after_model_changes(qapp, tmp_path):
     for name in ("models", "datasets", "outputs", "cache"):
         (tmp_path / name).mkdir(parents=True, exist_ok=True)
     settings = AppSettings(
@@ -160,21 +160,19 @@ def test_models_tab_connects_models_changed_to_scan_local_models(qapp, tmp_path)
 
     state = AppState()
     service = StubService()
-    tab = ModelsTab(state, StorageService(settings), model_service=service)
+    tab = ModelsTab(
+        state, StorageService(settings), model_service=service, scan_on_init=False
+    )
 
     assert tab._models_changed_connected is True
-    calls_after_init = service.calls
-
-    # Simulate Training/Heretic publishing an output. The library must rescan
-    # exactly once and must not republish (which would recurse forever).
     state.publish_models([])
-    assert service.calls == calls_after_init + 1
+    assert wait_for(lambda: service.calls == 1 and tab._scan_worker is None)
     assert tab.library_table.rowCount() == 0
 
-    # A local scan publishes models_changed too; do not scan twice for that.
-    calls_after_signal = service.calls
-    tab.scan_library()
-    assert service.calls == calls_after_signal + 1
+    # The tab's own publish must not trigger a recursive second scan.
+    tab._scan_library(publish=True)
+    assert wait_for(lambda: service.calls == 2 and tab._scan_worker is None)
+    assert tab.library_table.rowCount() == 0
 
 
 def test_cancel_button_requests_worker_cancellation(qapp, tmp_path, monkeypatch):
