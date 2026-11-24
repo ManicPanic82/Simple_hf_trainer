@@ -257,8 +257,10 @@ class HereticTab(TabPage):
 
         self._active_worker: WorkerProcess | None = None
         self._active_job_id: str | None = None
+        self._active_study_checkpoint_dir: str | None = None
         self._pending_completion: tuple[bool, str] | None = None
         self._queued_jobs: dict[str, dict] = {}
+        self._queued_job_id: str | None = None
         self._queue_connected = False
         self._config = HereticConfig.compact()
         self._scorer_rows: list[dict] = []
@@ -1615,7 +1617,13 @@ class HereticTab(TabPage):
             return
         self.run_state_row.set_value(f"{job.state.value} · {job.engine}")
         self._set_worker_pill_for_state(job.state)
+        if job.state is JobState.QUEUED:
+            self._queued_job_id = job.job_id
+            self.cancel_button.setEnabled(True)
         if job.state.is_terminal:
+            if self._queued_job_id == job.job_id:
+                self._queued_job_id = None
+            self._queued_jobs.pop(job.job_id, None)
             self.cancel_button.setEnabled(False)
             self._run_timer.stop()
             self._refresh_run_button()
@@ -1624,7 +1632,15 @@ class HereticTab(TabPage):
         """Enable Start only when the engine is available and no run is active."""
         status = self._heretic_status
         available = status is not None and status.is_available
-        busy = self._active_worker is not None and self._active_worker.running
+        busy = (
+            (self._active_worker is not None and self._active_worker.running)
+            or self._queued_job_id is not None
+            or (
+                self._active_job_id is not None
+                and self._job_manager.snapshot(self._active_job_id) is not None
+                and self._job_manager.snapshot(self._active_job_id).state.is_active
+            )
+        )
         self.run_button.setEnabled(available and not busy)
 
     # ==================================================================
@@ -1733,6 +1749,7 @@ class HereticTab(TabPage):
                 "interpreter": interpreter,
                 "script": worker_script,
             }
+            self._queued_job_id = job.job_id
             self._connect_queue_signal()
             self.console.append(
                 f"Job {job.job_id} queued; it starts when the GPU is free.",
@@ -1769,6 +1786,7 @@ class HereticTab(TabPage):
         if trial_index is not None:
             cfg.trial_index = trial_index
         headless = cfg.headless_copy(model_dir, checkpoints_dir)
+        self._active_study_checkpoint_dir = headless.study_checkpoint_dir
         self._pending_model_action = headless.model_action
         data = {
             "job_id": job_id,
@@ -1858,6 +1876,8 @@ class HereticTab(TabPage):
         if snapshot.state is not JobState.STARTING:
             return
         spec = self._queued_jobs.pop(snapshot.job_id, None)
+        if self._queued_job_id == snapshot.job_id:
+            self._queued_job_id = None
         if spec is None:
             return
         self.console.append(
@@ -1971,6 +1991,21 @@ class HereticTab(TabPage):
         self._state.notify("error", f"Could not prepare Heretic job: {error}")
 
     def _cancel_heretic(self) -> None:
+        if self._queued_job_id:
+            job_id = self._queued_job_id
+            self._job_manager.request_cancel(job_id)
+            self._queued_jobs.pop(job_id, None)
+            self._queued_job_id = None
+            self.cancel_button.setEnabled(False)
+            self._set_worker_pill("Worker � cancelling", "warn")
+            self.console.append(
+                f"Cancelled queued job {job_id}.",
+                level="warning",
+                source="cancel",
+            )
+            self._state.notify("info", f"Heretic job {job_id} cancelled.")
+            return
+
         if self._active_job_id and self._active_worker and self._active_worker.running:
             self._job_manager.request_cancel(self._active_job_id)
             sent = self._active_worker.request_cancel(self._active_job_id)
@@ -2173,8 +2208,7 @@ class HereticTab(TabPage):
             parent=self,
         )
         if dlg.exec() == QDialog.Accepted:
-            idx = dlg.selected_trial()
-            return (idx + 1) if idx is not None else None
+            return dlg.selected_trial()
         return None
 
     def _trial_ranked_results(self, limit: int = 3) -> list[dict[str, object]]:
@@ -2203,7 +2237,7 @@ class HereticTab(TabPage):
                 kl_value = None
             collected.append(
                 {
-                    "trial": int(step) + 1,
+                    "trial": int(step),
                     "refusals": refusal_value,
                     "refusal_rate": refusal_value,
                     "kl_divergence": kl_value,
@@ -2313,17 +2347,50 @@ class HereticTab(TabPage):
         self.elapsed_row.set_value(_format_elapsed(time.monotonic() - self._run_started_monotonic))
 
     def _verify_output(self) -> list[str]:
+        export_strategy = (self.export_combo.currentText() or "merge").lower()
+        if self._pending_model_action == "upload":
+            if self._pending_artifacts is not None and not self._pending_artifacts:
+                return ["Heretic reported success but uploaded no output files."]
+            return []
         if self._pending_model_action != "save":
             return []
         if self._pending_artifacts is not None:
-            if not self._pending_artifacts:
+            files = [Path(item) for item in self._pending_artifacts]
+            if not files:
                 return ["Heretic reported success but produced no output files."]
-            return []
+            return self._verify_expected_files(files, export_strategy)
         if self._pending_output_dir:
             path = Path(self._pending_output_dir)
-            if not path.is_dir() or not any(path.iterdir()):
+            if not path.is_dir():
                 return [f"Expected output was not found in {path}."]
+            files = [item for item in path.iterdir() if item.is_file()]
+            if not files:
+                return [f"Expected output was not found in {path}."]
+            return self._verify_expected_files(files, export_strategy)
         return []
+
+    @staticmethod
+    def _verify_expected_files(files: list[Path], export_strategy: str) -> list[str]:
+        names = {file.name.lower() for file in files}
+        weight_names = {name for name in names if name.endswith((".safetensors", ".bin", ".gguf"))}
+        if export_strategy == "adapter":
+            problems: list[str] = []
+            if not any(
+                name == "adapter_config.json" or name.startswith("adapter_config") for name in names
+            ):
+                problems.append("Expected adapter_config.json was not found.")
+            if not any(name.startswith("adapter_model") for name in weight_names):
+                problems.append(
+                    "Expected adapter_model.safetensors or adapter_model.bin was not found."
+                )
+            return problems
+        # Merged model: config plus at least one weight file.
+        problems = []
+        if not any(name == "config.json" or name.startswith("config") for name in names):
+            problems.append("Expected config.json was not found.")
+        if not weight_names:
+            problems.append("Expected model weights (.safetensors, .bin, or .gguf) were not found.")
+        return problems
 
     def _on_worker_exited(self, exit_code: int) -> None:
         self._run_timer.stop()
@@ -2365,7 +2432,7 @@ class HereticTab(TabPage):
                         if selected is not None:
                             # User selected a trial; re-run Heretic with that trial index
                             self.console.append(
-                                f"Re-running trial {selected}...",
+                                f"Re-running trial {selected + 1}...",
                                 level="info",
                                 source="trial selection",
                             )
@@ -2405,7 +2472,12 @@ class HereticTab(TabPage):
                                             job_id,
                                             message="Completed; selected trial queued to re-run.",
                                         )
-                                        selected_config.trial_index = selected - 1
+                                        selected_config.trial_index = selected
+                                        if self._active_study_checkpoint_dir:
+                                            selected_config.study_checkpoint_dir = (
+                                                self._active_study_checkpoint_dir
+                                            )
+                                            selected_config.checkpoint_action = "continue"
                                         rerun = self._job_manager.submit(
                                             HERETIC, model_ref=selected_config.model
                                         )
@@ -2426,6 +2498,7 @@ class HereticTab(TabPage):
                                                 "interpreter": interpreter,
                                                 "script": worker_script,
                                             }
+                                            self._queued_job_id = rerun.job_id
                                             self._connect_queue_signal()
                                             self.console.append(
                                                 f"Selected trial re-run {rerun.job_id} queued; "

@@ -150,9 +150,10 @@ class OutputInterceptor:
         # Parse trials
         trial_match = re.search(r"Running trial (\d+) of (\d+)", line_str)
         if trial_match:
-            self.current_trial = int(trial_match.group(1))
+            # Heretic prints one-based trial numbers; the GUI stores zero-based.
+            self.current_trial = max(0, int(trial_match.group(1)) - 1)
             self.total_trials = max(1, int(trial_match.group(2)))
-            frac = min(0.95, 0.1 + 0.8 * (self.current_trial / self.total_trials))
+            frac = min(0.95, 0.1 + 0.8 * ((self.current_trial + 1) / self.total_trials))
             emit(
                 "progress",
                 self.job_id,

@@ -169,7 +169,7 @@ def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
     tab._active_job_id = "heretic-1"
     tab._pending_completion = (True, "initial run complete")
     tab._trial_ranked_results = lambda limit=3: ([{"trial": 1}, {"trial": 2}], 1)
-    tab._show_trial_selection_dialog = lambda results, recommended_index: 2
+    tab._show_trial_selection_dialog = lambda results, recommended_index: 1
     tab._verify_output = lambda: []
     tab._config.model = "org/model"
     interpreter = tmp_path / "heretic-python.exe"
@@ -199,3 +199,46 @@ def test_selected_trial_rerun_releases_gpu_and_launches_after_exit_cleanup(
         interpreter,
         Path(__file__).resolve().parents[1] / "src" / "workers" / "heretic_worker.py",
     )
+
+
+def test_queued_heretic_job_can_be_cancelled(qapp, tmp_path: Path) -> None:
+    tab = _tab(tmp_path)
+    tab._queued_job_id = "heretic-queued"
+    tab._queued_jobs["heretic-queued"] = {"config": {}}
+
+    tab._cancel_heretic()
+
+    tab._job_manager.request_cancel.assert_called_once_with("heretic-queued")
+    assert tab._queued_job_id is None
+    assert "heretic-queued" not in tab._queued_jobs
+    assert tab.cancel_button.isEnabled() is False
+
+
+def test_verify_output_requires_expected_merged_files(qapp, tmp_path: Path) -> None:
+    tab = _tab(tmp_path)
+    tab.export_combo.setCurrentText("merge")
+    tab._pending_model_action = "save"
+    tab._pending_output_dir = str(tmp_path / "model")
+
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+
+    assert tab._verify_output()
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
+    assert tab._verify_output() == []
+
+
+def test_verify_output_requires_adapter_files(qapp, tmp_path: Path) -> None:
+    tab = _tab(tmp_path)
+    tab.export_combo.setCurrentText("adapter")
+    tab._pending_model_action = "save"
+    tab._pending_output_dir = str(tmp_path / "adapter")
+
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter_model.safetensors").write_text("weights", encoding="utf-8")
+
+    assert tab._verify_output()
+    (adapter_dir / "adapter_config.json").write_text("{}", encoding="utf-8")
+    assert tab._verify_output() == []

@@ -184,7 +184,10 @@ def test_output_interceptor_assembles_partial_writes(monkeypatch) -> None:
     ]
     assert all(entry["payload"]["stream"] == "stdout" for entry in messages)
     progress = [entry for entry in captured if entry["type"] == "progress"]
-    assert progress and progress[-1]["payload"]["step"] == 2
+    assert progress and progress[-1]["payload"]["step"] == 1
+    assert interceptor.current_trial == 1
+    metric_lines = [entry for entry in captured if entry["type"] == "metric"]
+    assert all(entry["payload"].get("step") == 1 for entry in metric_lines)
 
 
 def test_output_interceptor_flush_emits_buffered_tail(monkeypatch) -> None:
