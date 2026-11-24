@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from pathlib import Path
 
 from app.state import AppState
@@ -23,6 +24,10 @@ def test_analytics_receives_real_training_metrics(qapp, tmp_path: Path) -> None:
     state.publish_metric("grad_norm", 1, 0.6, "unsloth-1")
     state.publish_metric("tokens_per_second", 1, 42.0, "unsloth-1")
     state.publish_metric("eval_accuracy", 1, 0.91, "unsloth-1")
+    state.publish_datasets([
+        SimpleNamespace(row_count=1200, size_mb=4.5, is_prepared=True, format="jsonl"),
+        SimpleNamespace(row_count=800, size_mb=2.5, is_prepared=False, format="csv"),
+    ])
     state.publish_hardware(
         HardwareSnapshot(
             gpu=GpuStats(
@@ -47,6 +52,8 @@ def test_analytics_receives_real_training_metrics(qapp, tmp_path: Path) -> None:
     assert tab.gpu_chart.points["GPU %"] == [(10.0, 72.0)]
     assert tab.gpu_chart.points["VRAM %"] == [(10.0, 4096 / 6144 * 100)]
     assert tab.history_table.rowCount() == 1
+    assert "2,000 known rows" in tab.dataset_summary.text()
+    assert "1 prepared" in tab.dataset_summary.text()
     assert "unsloth-1" in tab.overview.text()
 
 
