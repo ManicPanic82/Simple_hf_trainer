@@ -474,14 +474,12 @@ class DatasetsTab(TabPage):
         """List real dataset files, including files in nested split directories."""
         directory = path if path.is_dir() else path.parent
         candidates: set[Path] = set()
-        try:
+        with suppress(OSError):
             candidates.update(
                 entry
                 for entry in directory.rglob("*")
                 if entry.is_file() and entry.suffix.lower() in _DATA_FILE_SUFFIXES
             )
-        except OSError:
-            pass
 
         # Always include the selected file itself, even with an unusual suffix.
         if path.is_file():
