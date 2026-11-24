@@ -138,7 +138,7 @@ def test_download_model_keeps_signature_compatible(tmp_path, monkeypatch):
     assert destination.is_dir()
 
 
-def test_models_tab_refreshes_asynchronously_after_model_changes(qapp, tmp_path):
+def test_models_tab_refreshes_asynchronously_after_model_changes(qapp, tmp_path, wait_for):
     for name in ("models", "datasets", "outputs", "cache"):
         (tmp_path / name).mkdir(parents=True, exist_ok=True)
     settings = AppSettings(
