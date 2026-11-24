@@ -253,17 +253,23 @@ class DatasetService:
         if suffix == ".jsonl":
             count = 0
             with open(file_path, encoding="utf-8", errors="replace") as f:
-                for idx, line in enumerate(f):
+                for line_number, line in enumerate(f, start=1):
                     count += 1
-                    if idx < num_rows:
-                        try:
-                            obj = json.loads(line)
-                            if isinstance(obj, dict):
-                                if not columns:
-                                    columns = list(obj.keys())
-                                rows.append(obj)
-                        except Exception:
-                            pass
+                    if len(rows) >= num_rows or not line.strip():
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError as error:
+                        raise ValueError(
+                            f"Invalid JSONL record at line {line_number}: {error}"
+                        ) from error
+                    if not isinstance(obj, dict):
+                        raise ValueError(
+                            f"JSONL record at line {line_number} must be an object."
+                        )
+                    if not columns:
+                        columns = list(obj.keys())
+                    rows.append(obj)
             total_rows = count
 
         elif suffix == ".json":
