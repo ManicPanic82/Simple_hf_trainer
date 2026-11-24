@@ -1,4 +1,4 @@
-"""Training tab: Unsloth LoRA/QLoRA job configuration, execution, and live monitoring."""
+"""Training tab: full fine-tuning and Unsloth LoRA/QLoRA job workflows."""
 
 from __future__ import annotations
 
@@ -208,11 +208,11 @@ class TrainingTab(TabPage):
         )
         grid.addWidget(self.export_combo, 10, 1, 1, 3)
 
-        grid.addWidget(QLabel("Merged model name:", cfg_card), 11, 0)
+        grid.addWidget(QLabel("Output model name:", cfg_card), 11, 0)
         self.output_model_name_edit = QLineEdit(cfg_card)
         self.output_model_name_edit.setPlaceholderText("Base model name + -finetuned")
         self.output_model_name_edit.setToolTip(
-            "Name of the merged model's folder in the Models library. Leave blank to "
+            "Name of the output model folder in the Models library. Leave blank to "
             "use the source model name with '-finetuned' appended. The source model "
             "is never modified."
         )
@@ -328,7 +328,7 @@ class TrainingTab(TabPage):
         # --- Outputs Card ---
         outputs = Card(
             "Training outputs",
-            "Adapters and logs are written to a job-specific folder that other workflows can reuse.",
+            "Full model checkpoints, adapters and logs are written to a job-specific folder that other workflows can reuse.",
         )
         self.outputs_path = StoragePathRow("outputs_dir", "Outputs folder", outputs)
         self.outputs_path.open_requested.connect(self._open_outputs)
