@@ -101,58 +101,58 @@ class TrainingTab(TabPage):
         grid.addWidget(self.dataset_combo, 1, 1, 1, 3)
 
         # Hyperparameters
-        grid.addWidget(QLabel("Max Steps (0 = epochs):", cfg_card), 2, 0)
+        grid.addWidget(QLabel("Max Steps (0 = epochs):", cfg_card), 3, 0)
         self.steps_spin = QSpinBox(cfg_card)
         self.steps_spin.setRange(0, 100000)
         self.steps_spin.setValue(5)
         self.steps_spin.setToolTip(
             "Set to 0 to train for the configured number of epochs instead of a fixed step count."
         )
-        grid.addWidget(self.steps_spin, 2, 1)
+        grid.addWidget(self.steps_spin, 3, 1)
 
-        grid.addWidget(QLabel("Batch Size:", cfg_card), 2, 2)
+        grid.addWidget(QLabel("Batch Size:", cfg_card), 3, 2)
         self.batch_spin = QSpinBox(cfg_card)
         self.batch_spin.setRange(1, 16)
         self.batch_spin.setValue(1)
-        grid.addWidget(self.batch_spin, 2, 3)
+        grid.addWidget(self.batch_spin, 3, 3)
 
-        grid.addWidget(QLabel("Learning Rate:", cfg_card), 3, 0)
+        grid.addWidget(QLabel("Learning Rate:", cfg_card), 4, 0)
         self.lr_edit = QLineEdit("2e-4", cfg_card)
-        grid.addWidget(self.lr_edit, 3, 1)
+        grid.addWidget(self.lr_edit, 4, 1)
 
-        grid.addWidget(QLabel("Max Seq Length:", cfg_card), 3, 2)
+        grid.addWidget(QLabel("Max Seq Length:", cfg_card), 4, 2)
         self.seq_spin = QSpinBox(cfg_card)
         self.seq_spin.setRange(64, 4096)
         self.seq_spin.setSingleStep(64)
         self.seq_spin.setValue(256)
-        grid.addWidget(self.seq_spin, 3, 3)
+        grid.addWidget(self.seq_spin, 4, 3)
 
-        grid.addWidget(QLabel("LoRA Rank (r):", cfg_card), 4, 0)
+        grid.addWidget(QLabel("LoRA Rank (r):", cfg_card), 5, 0)
         self.r_spin = QSpinBox(cfg_card)
         self.r_spin.setRange(4, 64)
         self.r_spin.setValue(8)
-        grid.addWidget(self.r_spin, 4, 1)
+        grid.addWidget(self.r_spin, 5, 1)
 
-        grid.addWidget(QLabel("LoRA Alpha:", cfg_card), 4, 2)
+        grid.addWidget(QLabel("LoRA Alpha:", cfg_card), 5, 2)
         self.alpha_spin = QSpinBox(cfg_card)
         self.alpha_spin.setRange(8, 128)
         self.alpha_spin.setValue(16)
-        grid.addWidget(self.alpha_spin, 4, 3)
+        grid.addWidget(self.alpha_spin, 5, 3)
 
         # Epoch-based training is selected by setting Max Steps to zero.
-        grid.addWidget(QLabel("Epochs:", cfg_card), 5, 0)
+        grid.addWidget(QLabel("Epochs:", cfg_card), 6, 0)
         self.epochs_spin = QSpinBox(cfg_card)
         self.epochs_spin.setRange(1, 1000)
         self.epochs_spin.setValue(3)
-        grid.addWidget(self.epochs_spin, 5, 1)
+        grid.addWidget(self.epochs_spin, 6, 1)
 
-        grid.addWidget(QLabel("Warmup Steps:", cfg_card), 5, 2)
+        grid.addWidget(QLabel("Warmup Steps:", cfg_card), 6, 2)
         self.warmup_spin = QSpinBox(cfg_card)
         self.warmup_spin.setRange(0, 100000)
         self.warmup_spin.setValue(0)
-        grid.addWidget(self.warmup_spin, 5, 3)
+        grid.addWidget(self.warmup_spin, 6, 3)
 
-        grid.addWidget(QLabel("Optimizer:", cfg_card), 6, 0)
+        grid.addWidget(QLabel("Optimizer:", cfg_card), 7, 0)
         self.optimizer_combo = QComboBox(cfg_card)
         self.optimizer_combo.addItem("AdamW 8-bit (low VRAM)", "adamw_8bit")
         self.optimizer_combo.addItem("AdamW (PyTorch)", "adamw_torch")
@@ -163,34 +163,34 @@ class TrainingTab(TabPage):
         )
         grid.addWidget(self.optimizer_combo, 6, 1, 1, 3)
 
-        grid.addWidget(QLabel("Save Strategy:", cfg_card), 7, 0)
+        grid.addWidget(QLabel("Save Strategy:", cfg_card), 8, 0)
         self.save_strategy_combo = QComboBox(cfg_card)
         self.save_strategy_combo.addItem("Disabled", "no")
         self.save_strategy_combo.addItem("Every N steps", "steps")
         self.save_strategy_combo.addItem("Every epoch", "epoch")
         self.save_strategy_combo.setCurrentIndex(2)
-        grid.addWidget(self.save_strategy_combo, 7, 1)
+        grid.addWidget(self.save_strategy_combo, 8, 1)
 
-        grid.addWidget(QLabel("Save Interval:", cfg_card), 7, 2)
+        grid.addWidget(QLabel("Save Interval:", cfg_card), 8, 2)
         self.save_steps_spin = QSpinBox(cfg_card)
         self.save_steps_spin.setRange(1, 100000)
         self.save_steps_spin.setValue(50)
-        grid.addWidget(self.save_steps_spin, 7, 3)
+        grid.addWidget(self.save_steps_spin, 8, 3)
 
-        grid.addWidget(QLabel("Evaluation:", cfg_card), 8, 0)
+        grid.addWidget(QLabel("Evaluation:", cfg_card), 9, 0)
         self.eval_strategy_combo = QComboBox(cfg_card)
         self.eval_strategy_combo.addItem("Disabled", "no")
         self.eval_strategy_combo.addItem("Every N steps", "steps")
         self.eval_strategy_combo.addItem("Every epoch", "epoch")
-        grid.addWidget(self.eval_strategy_combo, 8, 1)
+        grid.addWidget(self.eval_strategy_combo, 9, 1)
 
-        grid.addWidget(QLabel("Eval Interval:", cfg_card), 8, 2)
+        grid.addWidget(QLabel("Eval Interval:", cfg_card), 9, 2)
         self.eval_steps_spin = QSpinBox(cfg_card)
         self.eval_steps_spin.setRange(1, 100000)
         self.eval_steps_spin.setValue(50)
-        grid.addWidget(self.eval_steps_spin, 8, 3)
+        grid.addWidget(self.eval_steps_spin, 9, 3)
 
-        grid.addWidget(QLabel("Evaluation Dataset:", cfg_card), 9, 0)
+        grid.addWidget(QLabel("Evaluation Dataset:", cfg_card), 10, 0)
         self.eval_dataset_combo = QComboBox(cfg_card)
         self.eval_dataset_combo.setEditable(True)
         self.eval_dataset_combo.setPlaceholderText("Optional; required when evaluation is enabled")
@@ -199,7 +199,7 @@ class TrainingTab(TabPage):
 
         # Export strategy. A merged fp16 model can be picked as the base model
         # for a later continued-training job; adapter-only stays small.
-        grid.addWidget(QLabel("Export:", cfg_card), 10, 0)
+        grid.addWidget(QLabel("Export:", cfg_card), 11, 0)
         self.export_combo = QComboBox(cfg_card)
         self.export_combo.addItem("Merged model (16-bit) — reusable base", "merged_16bit")
         self.export_combo.addItem("Adapter only (LoRA)", "adapter")
@@ -210,7 +210,7 @@ class TrainingTab(TabPage):
         )
         grid.addWidget(self.export_combo, 10, 1, 1, 3)
 
-        grid.addWidget(QLabel("Output model name:", cfg_card), 11, 0)
+        grid.addWidget(QLabel("Output model name:", cfg_card), 12, 0)
         self.output_model_name_edit = QLineEdit(cfg_card)
         self.output_model_name_edit.setPlaceholderText("Base model name + -finetuned")
         self.output_model_name_edit.setToolTip(
@@ -223,13 +223,13 @@ class TrainingTab(TabPage):
 
         # Training method and memory/optimisation controls. Full fine-tuning is
         # deliberately the default; adapter methods remain explicit alternatives.
-        grid.addWidget(QLabel("Training Method:", cfg_card), 12, 0)
+        grid.addWidget(QLabel("Training Method:", cfg_card), 2, 0)
         self.training_method_combo = QComboBox(cfg_card)
         self.training_method_combo.addItem("Full fine-tuning (all model weights)", "full_finetune")
         self.training_method_combo.addItem("LoRA (adapter)", "lora")
         self.training_method_combo.addItem("QLoRA (4-bit base + adapter)", "qlora")
         self.training_method_combo.currentIndexChanged.connect(self._update_training_method_state)
-        grid.addWidget(self.training_method_combo, 12, 1, 1, 3)
+        grid.addWidget(self.training_method_combo, 12, 2, 1, 3)
 
         grid.addWidget(QLabel("Training Precision:", cfg_card), 13, 0)
         self.precision_combo = QComboBox(cfg_card)
