@@ -242,7 +242,9 @@ class TrainingTab(TabPage):
         self.grad_accum_spin = QSpinBox(cfg_card)
         self.grad_accum_spin.setRange(1, 128)
         self.grad_accum_spin.setValue(8)
-        self.grad_accum_spin.setToolTip("Effective batch size = per-device batch size × gradient accumulation.")
+        self.grad_accum_spin.setToolTip(
+            "Effective batch size = per-device batch size × gradient accumulation."
+        )
         grid.addWidget(self.grad_accum_spin, 14, 1)
 
         grid.addWidget(QLabel("Gradient Checkpointing:", cfg_card), 14, 2)
@@ -268,7 +270,9 @@ class TrainingTab(TabPage):
 
         grid.addWidget(QLabel("Resume Checkpoint (optional):", cfg_card), 17, 0)
         self.resume_checkpoint_edit = QLineEdit(cfg_card)
-        self.resume_checkpoint_edit.setPlaceholderText("Path to an existing Trainer checkpoint folder")
+        self.resume_checkpoint_edit.setPlaceholderText(
+            "Path to an existing Trainer checkpoint folder"
+        )
         grid.addWidget(self.resume_checkpoint_edit, 17, 1, 1, 3)
 
         cfg_card.add_layout(grid)
@@ -330,7 +334,8 @@ class TrainingTab(TabPage):
         # --- Outputs Card ---
         outputs = Card(
             "Training outputs",
-            "Full model checkpoints, adapters and logs are written to a job-specific folder that other workflows can reuse.",
+            "Full model checkpoints, adapters and logs are written to a job-specific folder "
+            "that other workflows can reuse.",
         )
         self.outputs_path = StoragePathRow("outputs_dir", "Outputs folder", outputs)
         self.outputs_path.open_requested.connect(self._open_outputs)
@@ -616,7 +621,10 @@ class TrainingTab(TabPage):
             or weight_decay < 0
             or max_grad_norm < 0
         ):
-            self._state.notify("error", "Weight decay and max gradient norm must be finite and non-negative.")
+            self._state.notify(
+                "error",
+                "Weight decay and max gradient norm must be finite and non-negative.",
+            )
             return
         resume_checkpoint = self.resume_checkpoint_edit.text().strip()
         if resume_checkpoint and not Path(resume_checkpoint).is_dir():
