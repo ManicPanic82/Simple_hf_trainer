@@ -250,8 +250,7 @@ def test_prepare_dataset_rejects_source_as_output_path(tmp_path: Path):
 def test_prepare_dataset_rejects_malformed_jsonl_without_partial_output(tmp_path: Path):
     source = tmp_path / "training.jsonl"
     source.write_text(
-        '{"instruction":"Question","output":"Answer"}\n'
-        '{invalid json}\n',
+        '{"instruction":"Question","output":"Answer"}\n{invalid json}\n',
         encoding="utf-8",
     )
     destination = tmp_path / "prepared.jsonl"
@@ -266,8 +265,7 @@ def test_prepare_dataset_rejects_malformed_jsonl_without_partial_output(tmp_path
 def test_prepare_dataset_rejects_non_object_jsonl_record(tmp_path: Path):
     source = tmp_path / "training.jsonl"
     source.write_text(
-        '{"instruction":"Question","output":"Answer"}\n'
-        '["not", "an", "object"]\n',
+        '{"instruction":"Question","output":"Answer"}\n["not", "an", "object"]\n',
         encoding="utf-8",
     )
     destination = tmp_path / "prepared.jsonl"
