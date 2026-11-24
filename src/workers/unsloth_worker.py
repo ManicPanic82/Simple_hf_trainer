@@ -308,8 +308,13 @@ def run_worker(cfg: dict) -> int:
         emit("error", job_id, {"message": "Learning rate must be greater than 0 and less than 1."})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
-    if weight_decay < 0 or max_grad_norm < 0:
-        emit("error", job_id, {"message": "Weight decay and max gradient norm cannot be negative."})
+    if (
+        not math.isfinite(weight_decay)
+        or not math.isfinite(max_grad_norm)
+        or weight_decay < 0
+        or max_grad_norm < 0
+    ):
+        emit("error", job_id, {"message": "Weight decay and max gradient norm must be finite and non-negative."})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if lr_scheduler_type not in {"cosine", "linear", "constant", "constant_with_warmup"}:
