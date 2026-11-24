@@ -9,7 +9,7 @@
    interpreters and separate processes.
 3. **The GUI thread never blocks.** Monitoring and engine checks run on `QThreadPool`
    workers; engine jobs will run in `QProcess` workers.
-4. **Small surface.** Exactly four tabs, one window, no speculative abstractions.
+4. **Small surface.** Exactly six tabs, one window, no speculative abstractions.
 
 ## Layout
 
@@ -32,9 +32,9 @@ src/workers/
     worker_process.py         QProcess runner for one engine worker
     job_manager.py            GPU-exclusive lock and job lifecycle
 src/ui/
-    main_window.py            header, four tabs, notice banner, status strip
+    main_window.py            header, six tabs, notice banner, status strip
     console.py                timestamped, bounded live worker consoles with retained history
-    models_tab.py datasets_tab.py training_tab.py heretic_tab.py
+    models_tab.py datasets_tab.py training_tab.py analytics_tab.py heretic_tab.py ollama_export_tab.py
     tab_page.py components.py engine_card.py status_strip.py theme.py
     settings_dialog.py storage_action.py
 ```
@@ -157,4 +157,4 @@ Detection runs `python -c "<probe>"` in the engine interpreter, which reports
 - `Pill` states: `ok`, `warn`, `error`, `info`, `off`.
 - Paths render through `StoragePathRow` (validation pill + open/create button).
 - Hardware and engines degrade gracefully when dependencies are absent.
-- All four tabs communicate reactively through `AppState` signals.
+- All six tabs communicate reactively through `AppState` signals where shared state is required.
