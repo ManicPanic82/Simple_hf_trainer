@@ -763,6 +763,7 @@ class TrainingTab(TabPage):
             epoch = payload.get("epoch")
             if isinstance(epoch, (int, float)):
                 self.dashboard.add_metric("epoch", int(step or 0), float(epoch))
+                self._state.publish_metric("epoch", int(step or 0), float(epoch), msg.job_id)
 
         elif msg.type is MessageType.METRIC:
             name = payload.get("name")
@@ -771,6 +772,7 @@ class TrainingTab(TabPage):
                 value = float(val)
                 step = int(payload.get("step", 0) or 0)
                 self.dashboard.add_metric(str(name), step, value)
+                self._state.publish_metric(str(name), step, value, msg.job_id)
                 if name == "loss":
                     self.loss_label.setText(f"Loss: {value:.4f}")
                 elif name == "eval_loss":
