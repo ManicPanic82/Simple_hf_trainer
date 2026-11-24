@@ -38,6 +38,7 @@ class OllamaExportTab(TabPage):
         self.process.errorOccurred.connect(self._process_error)
         self._stages: list[tuple[str, str, list[str]]] = []
         self._stage_index = 0
+        self._cancel_requested = False
         self._final_gguf: Path | None = None
         self._modelfile: Path | None = None
 
@@ -233,6 +234,7 @@ class OllamaExportTab(TabPage):
             ("Verify Ollama model", str(ollama), ["show", name]),
         ])
         self._stage_index = 0
+        self._cancel_requested = False
         self.log.setText("")
         self.start_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
@@ -269,6 +271,11 @@ class OllamaExportTab(TabPage):
     def _process_finished(self, exit_code: int, exit_status) -> None:
         self._read_output()
         self._read_error()
+        if self._cancel_requested:
+            self.status_row.set_value("Cancelled")
+            self._append("Conversion cancelled. Partial output files were retained.")
+            self._finish()
+            return
         if exit_status != QProcess.ExitStatus.NormalExit or exit_code != 0:
             self._fail(f"Stage failed (exit code {exit_code}). Review the output above.")
             return
@@ -281,6 +288,7 @@ class OllamaExportTab(TabPage):
 
     def cancel_export(self) -> None:
         if self.worker_running:
+            self._cancel_requested = True
             self.process.terminate()
             if self.process.state() != QProcess.ProcessState.NotRunning:
                 self.process.kill()
