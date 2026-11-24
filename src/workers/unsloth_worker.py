@@ -196,6 +196,37 @@ def evaluation_strategy_argument(config_class) -> str:
     )
 
 
+def estimate_causal_lm_parameters(config) -> int | None:
+    """Conservatively estimate decoder-only parameter count from a HF config."""
+    hidden = getattr(config, "hidden_size", None) or getattr(config, "n_embd", None)
+    layers = getattr(config, "num_hidden_layers", None) or getattr(config, "n_layer", None)
+    intermediate = getattr(config, "intermediate_size", None) or getattr(config, "n_inner", None)
+    vocab = getattr(config, "vocab_size", None)
+    heads = getattr(config, "num_attention_heads", None) or getattr(config, "n_head", None)
+    kv_heads = getattr(config, "num_key_value_heads", None) or heads
+    values = (hidden, layers, intermediate, vocab, heads, kv_heads)
+    if any(not isinstance(value, int) or value <= 0 for value in values):
+        return None
+    kv_width = hidden * kv_heads // heads
+    attention = 2 * hidden * hidden + 2 * hidden * kv_width
+    activation = str(getattr(config, "hidden_act", "")).lower()
+    mlp = 3 * hidden * intermediate if activation in {"silu", "swiglu", "gelu_new"} else 2 * hidden * intermediate
+    embeddings = vocab * hidden
+    if not bool(getattr(config, "tie_word_embeddings", False)):
+        embeddings += vocab * hidden
+    return int((embeddings + layers * (attention + mlp)) * 1.12)
+
+
+def estimate_full_finetune_vram_bytes(
+    parameter_count: int, total_vram_bytes: int, precision: str, optimizer: str
+) -> int:
+    """Estimate weights, gradients, optimizer state and a modest activation reserve."""
+    parameter_bytes = 8 if precision == "fp32" else 4
+    optimizer_bytes = 8 if optimizer == "adamw_torch" else 3
+    activation_reserve = max(1024**3, int(total_vram_bytes * 0.15))
+    return parameter_count * (parameter_bytes + optimizer_bytes) + activation_reserve
+
+
 def run_worker(cfg: dict) -> int:
     # Unsloth/torch/transformers write human-readable banners and progress to
     # stdout. Route that chatter to stderr (the host's log channel) so stdout
@@ -216,16 +247,35 @@ def run_worker(cfg: dict) -> int:
     lora_r = int(cfg.get("lora_r", 8))
     lora_alpha = int(cfg.get("lora_alpha", 16))
     optim = str(cfg.get("optim", "adamw_8bit"))
+    training_method = str(cfg.get("training_method", "qlora"))
+    precision = str(cfg.get("precision", "fp16"))
+    gradient_checkpointing = bool(cfg.get("gradient_checkpointing", True))
+    weight_decay = float(cfg.get("weight_decay", 0.01))
+    max_grad_norm = float(cfg.get("max_grad_norm", 1.0))
+    lr_scheduler_type = str(cfg.get("lr_scheduler_type", "cosine"))
+    resume_from_checkpoint = str(cfg.get("resume_from_checkpoint") or "").strip() or None
     save_strategy = str(cfg.get("save_strategy", "no"))
     save_steps = int(cfg.get("save_steps", 50))
     eval_strategy = str(cfg.get("eval_strategy", "no"))
     eval_steps = int(cfg.get("eval_steps", 50))
     eval_dataset_path_str = cfg.get("eval_dataset_path")
-    # "merged_16bit" bakes the LoRA weights into a full fp16 model that can be
-    # selected as the base for a later continued-training job. "adapter" keeps
-    # the small PEFT adapter only (the previous behaviour).
-    export_strategy = str(cfg.get("export_strategy", "merged_16bit"))
-    if export_strategy not in {"merged_16bit", "adapter"}:
+    # Full fine-tuning exports the complete model; adapter methods can merge or
+    # export only their PEFT weights.
+    default_export = "full_model" if training_method == "full_finetune" else "merged_16bit"
+    export_strategy = str(cfg.get("export_strategy", default_export))
+    if training_method not in {"full_finetune", "lora", "qlora"}:
+        emit("error", job_id, {"message": f"Unsupported training method: {training_method!r}"})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if precision not in {"fp16", "bf16", "fp32"}:
+        emit("error", job_id, {"message": f"Unsupported training precision: {precision!r}"})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if (training_method == "full_finetune") != (export_strategy == "full_model"):
+        emit("error", job_id, {"message": "Full fine-tuning requires full_model export; adapter methods require merged_16bit or adapter export."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if export_strategy not in {"full_model", "merged_16bit", "adapter"}:
         emit(
             "error",
             job_id,
@@ -256,6 +306,14 @@ def run_worker(cfg: dict) -> int:
         return 1
     if not 0 < learning_rate < 1:
         emit("error", job_id, {"message": "Learning rate must be greater than 0 and less than 1."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if weight_decay < 0 or max_grad_norm < 0:
+        emit("error", job_id, {"message": "Weight decay and max gradient norm cannot be negative."})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
+    if lr_scheduler_type not in {"cosine", "linear", "constant", "constant_with_warmup"}:
+        emit("error", job_id, {"message": f"Unsupported learning-rate scheduler: {lr_scheduler_type!r}"})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
     if optim not in {"adamw_8bit", "adamw_torch", "paged_adamw_8bit"}:
@@ -325,8 +383,45 @@ def run_worker(cfg: dict) -> int:
         print("[checkpoint] Unsloth imported", file=sys.stderr, flush=True)
 
         from unsloth import FastLanguageModel
+        import torch
+        from transformers import AutoConfig
 
-        print("[checkpoint] FastLanguageModel imported", file=sys.stderr, flush=True)
+        print("[checkpoint] FastLanguageModel and torch imported", file=sys.stderr, flush=True)
+        if precision == "bf16" and not torch.cuda.is_bf16_supported():
+            raise ValueError("BF16 was selected, but the active CUDA GPU does not support BF16.")
+        if training_method == "full_finetune":
+            if not torch.cuda.is_available():
+                raise RuntimeError("Full fine-tuning requires a CUDA GPU; no CUDA device is available.")
+            model_config_for_preflight = AutoConfig.from_pretrained(
+                model_name, trust_remote_code=False
+            )
+            parameter_count = estimate_causal_lm_parameters(model_config_for_preflight)
+            if parameter_count is None:
+                raise RuntimeError(
+                    "Cannot safely estimate this model's full fine-tuning memory. "
+                    "Full fine-tuning was stopped before model loading."
+                )
+            total_vram = int(torch.cuda.get_device_properties(0).total_memory)
+            estimated_vram = estimate_full_finetune_vram_bytes(
+                parameter_count, total_vram, precision, optim
+            )
+            safe_budget = int(total_vram * 0.85)
+            emit(
+                "log",
+                job_id,
+                {"message": (
+                    f"Full fine-tuning preflight: approximately {parameter_count:,} parameters; "
+                    f"estimated {estimated_vram / 1024**3:.2f} GiB required, "
+                    f"{total_vram / 1024**3:.2f} GiB GPU memory available."
+                ), "level": "info"},
+            )
+            if estimated_vram > safe_budget:
+                raise RuntimeError(
+                    "Full fine-tuning blocked by the GPU memory preflight. "
+                    f"Estimated requirement is {estimated_vram / 1024**3:.2f} GiB, "
+                    f"but the safe budget is {safe_budget / 1024**3:.2f} GiB. "
+                    "Choose a smaller model, reduce precision/sequence length, or use LoRA/QLoRA."
+                )
 
         engine_version = getattr(unsloth, "__version__", "unknown")
         emit("ready", payload={"engine": "unsloth", "version": engine_version})
@@ -339,38 +434,43 @@ def run_worker(cfg: dict) -> int:
     emit(
         "log",
         job_id,
-        {"message": f"Loading model {model_name} in 4-bit precision...", "level": "info"},
+        {"message": (
+            f"Loading {model_name} for {training_method} ({precision}; "
+            f"{'4-bit base' if training_method == 'qlora' else 'full-precision base'})..."
+        ), "level": "info"},
     )
     emit("progress", job_id, {"fraction": 0.05, "step": 0, "total": max(1, max_steps)})
 
     try:
         print("[checkpoint] Before model loading", file=sys.stderr, flush=True)
+        dtype_map = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=max_seq_length,
-            dtype=None,
-            load_in_4bit=True,
+            dtype=dtype_map[precision],
+            load_in_4bit=training_method == "qlora",
         )
         print("[checkpoint] Model loaded successfully", file=sys.stderr, flush=True)
-        emit(
-            "log",
-            job_id,
-            {"message": "Model loaded successfully. Preparing LoRA adapters...", "level": "info"},
-        )
         emit("progress", job_id, {"fraction": 0.15, "step": 0, "total": max_steps})
 
-        print("[checkpoint] Before LoRA configuration", file=sys.stderr, flush=True)
-        model = FastLanguageModel.get_peft_model(
-            model,
-            r=lora_r,
-            lora_alpha=lora_alpha,
-            lora_dropout=0.0,
-            bias="none",
-            use_gradient_checkpointing="unsloth",
-            random_state=42,
-        )
-
-        print("[checkpoint] LoRA configured successfully", file=sys.stderr, flush=True)
+        if training_method in {"lora", "qlora"}:
+            emit("log", job_id, {"message": "Preparing LoRA adapters...", "level": "info"})
+            model = FastLanguageModel.get_peft_model(
+                model,
+                r=lora_r,
+                lora_alpha=lora_alpha,
+                lora_dropout=0.0,
+                bias="none",
+                use_gradient_checkpointing="unsloth" if gradient_checkpointing else False,
+                random_state=42,
+            )
+            print("[checkpoint] LoRA configured successfully", file=sys.stderr, flush=True)
+        else:
+            for parameter in model.parameters():
+                parameter.requires_grad_(True)
+            if getattr(model, "config", None) is not None:
+                model.config.use_cache = False
+            emit("log", job_id, {"message": "Full fine-tuning enabled: all model weights are trainable; no adapters are attached.", "level": "info"})
         model_config = getattr(model, "config", None)
 
         def config_value(name):
@@ -395,10 +495,11 @@ def run_worker(cfg: dict) -> int:
             "intermediate_size": config_value("intermediate_size"),
             "vocab_size": config_value("vocab_size"),
             "max_position_embeddings": config_value("max_position_embeddings"),
-            "lora_rank": lora_r,
-            "lora_alpha": lora_alpha,
+            "lora_rank": lora_r if training_method in {"lora", "qlora"} else None,
+            "lora_alpha": lora_alpha if training_method in {"lora", "qlora"} else None,
             "target_modules": target_modules,
-            "precision": "4-bit base + LoRA adapters",
+            "training_method": training_method,
+            "precision": precision,
         }
         emit("architecture", job_id, {"architecture": architecture})
         emit(
@@ -530,8 +631,12 @@ def run_worker(cfg: dict) -> int:
             "save_steps": save_steps,
             "save_total_limit": 2,
             "report_to": "none",
-            "fp16": True,
-            "bf16": False,
+            "fp16": precision == "fp16",
+            "bf16": precision == "bf16",
+            "gradient_checkpointing": gradient_checkpointing,
+            "weight_decay": weight_decay,
+            "max_grad_norm": max_grad_norm,
+            "lr_scheduler_type": lr_scheduler_type,
             "dataset_text_field": "text",
             "optim": optim,
             "seed": 42,
@@ -598,7 +703,7 @@ def run_worker(cfg: dict) -> int:
 
         start_time = time.time()
         print("[checkpoint] Before trainer.train()", file=sys.stderr, flush=True)
-        train_result = trainer.train()
+        train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         print("[checkpoint] trainer.train() returned", file=sys.stderr, flush=True)
         elapsed = round(time.time() - start_time, 1)
 
@@ -627,7 +732,12 @@ def run_worker(cfg: dict) -> int:
         )
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        if export_strategy == "merged_16bit":
+        if export_strategy == "full_model":
+            emit("log", job_id, {"message": "Saving the complete fine-tuned model checkpoint...", "level": "info"})
+            model.save_pretrained(str(output_dir), safe_serialization=True)
+            tokenizer.save_pretrained(str(output_dir))
+            print("[checkpoint] Full model checkpoint saved", file=sys.stderr, flush=True)
+        elif export_strategy == "merged_16bit":
             # Unsloth dequantizes the 4-bit base and folds in the LoRA weights,
             # producing a normal fp16 checkpoint. That checkpoint is discovered
             # as a base model, so it can be selected as the starting point for a
