@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QGridLayout, QLabel, QTableWidget, QTableWidgetIte
 
 from app.state import AppState
 from ui.tab_page import TabPage
+from ui.training_dashboard import ArchitectureView
 from workers.job_manager import JobManager
 
 
@@ -117,6 +118,19 @@ class AnalyticsTab(TabPage):
             grid.addWidget(wrapper, row, column)
         self.add_layout(grid)
 
+        architecture_title = QLabel("Loaded model architecture", self)
+        architecture_title.setObjectName("SectionLabel")
+        self.add(architecture_title)
+        self.architecture = ArchitectureView(self)
+        self.add(self.architecture)
+        self.architecture_details = QLabel("Architecture details appear after a model is loaded.", self)
+        self.architecture_details.setObjectName("Muted")
+        self.architecture_details.setWordWrap(True)
+        self.add(self.architecture_details)
+        state.architecture_changed.connect(self.set_architecture)
+        if state.architecture:
+            self.set_architecture(state.architecture)
+
         history_title = QLabel("Run history", self)
         history_title.setObjectName("SectionLabel")
         self.add(history_title)
@@ -139,6 +153,18 @@ class AnalyticsTab(TabPage):
             self._on_hardware(item)
         self.refresh_history()
         self.set_status("Live analytics")
+
+    def set_architecture(self, metadata: dict) -> None:
+        self.architecture.set_architecture(metadata)
+        model_type = metadata.get("model_type") or "Transformer"
+        layers = metadata.get("num_hidden_layers")
+        self.architecture_details.setText(
+            f"{model_type} · {layers or 'unknown'} layers · "
+            f"hidden size {metadata.get('hidden_size', 'unknown')} · "
+            f"attention heads {metadata.get('num_attention_heads', 'unknown')} · "
+            f"LoRA rank {metadata.get('lora_rank', '—')} · "
+            f"targets {metadata.get('target_modules', '—')}"
+        )
 
     def _on_metric(self, item: dict) -> None:
         name = str(item.get("name", ""))
