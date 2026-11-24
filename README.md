@@ -75,6 +75,10 @@ The window opens even when Unsloth and Heretic are not installed; their status i
 honestly in the header and tab cards. Engine setup is documented in
 [`docs/INSTALLATION.md`](docs/INSTALLATION.md).
 
+### Ollama export
+
+See [`docs/OLLAMA_EXPORT.md`](docs/OLLAMA_EXPORT.md) for llama.cpp, Python conversion dependencies, quantisation options, Ollama import and verification setup.
+
 ### Heretic configuration
 
 The Heretic tab exposes the real Heretic 2.x `config.toml` surface:
