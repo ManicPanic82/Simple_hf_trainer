@@ -97,6 +97,17 @@ class AnalyticsTab(TabPage):
         self.overview.setObjectName("StripValue")
         self.add(self.overview)
 
+        dataset_title = QLabel("Dataset overview", self)
+        dataset_title.setObjectName("SectionLabel")
+        self.add(dataset_title)
+        self.dataset_summary = QLabel("Waiting for local dataset discovery…", self)
+        self.dataset_summary.setObjectName("Muted")
+        self.dataset_summary.setWordWrap(True)
+        self.add(self.dataset_summary)
+        state.datasets_changed.connect(self._on_datasets)
+        if state.datasets:
+            self._on_datasets(state.datasets)
+
         grid = QGridLayout()
         self.loss_chart = HistoryChart(("loss", "eval_loss"), self)
         self.lr_chart = HistoryChart(("learning_rate",), self)
@@ -161,6 +172,23 @@ class AnalyticsTab(TabPage):
             self._on_hardware(item)
         self.refresh_history()
         self.set_status("Live analytics")
+
+    def _on_datasets(self, records: list) -> None:
+        count = len(records)
+        rows = [record.row_count for record in records if record.row_count is not None]
+        total_rows = sum(rows) if rows else None
+        total_size = sum(float(record.size_mb) for record in records)
+        prepared = sum(1 for record in records if record.is_prepared)
+        formats: dict[str, int] = {}
+        for record in records:
+            label = str(record.format).upper()
+            formats[label] = formats.get(label, 0) + 1
+        row_text = f"{total_rows:,} known rows" if total_rows is not None else "row counts unavailable"
+        format_text = ", ".join(f"{name}: {amount}" for name, amount in sorted(formats.items()))
+        self.dataset_summary.setText(
+            f"{count} local datasets · {row_text} · {total_size:.1f} MB · "
+            f"{prepared} prepared · {format_text or 'no format data'}"
+        )
 
     def set_architecture(self, metadata: dict) -> None:
         self.architecture.set_architecture(metadata)
