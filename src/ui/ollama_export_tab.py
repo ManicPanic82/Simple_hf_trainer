@@ -175,6 +175,17 @@ class OllamaExportTab(TabPage):
                 "from Training first, then convert that model here."
             )
             return
+        # Enforce source/output separation before checking optional tools such as
+        # the quantizer. This is a filesystem safety rule, not a tool prerequisite.
+        try:
+            source_resolved = source.resolve()
+            output_resolved = output.resolve()
+            if output_resolved == source_resolved or source_resolved in output_resolved.parents:
+                self._fail("Choose an output directory outside the source model folder.")
+                return
+        except OSError as error:
+            self._fail(f"Could not resolve export paths: {error}")
+            return
         if not python.is_file() or not converter.is_file() or not ollama.is_file():
             self._fail("Select valid Python, llama.cpp converter and Ollama executable paths.")
             return
@@ -185,11 +196,6 @@ class OllamaExportTab(TabPage):
             self._fail("Ollama model name must be 2–64 lowercase letters, numbers, dots, underscores or hyphens.")
             return
         try:
-            source_resolved = source.resolve()
-            output_resolved = output.resolve()
-            if output_resolved == source_resolved or source_resolved in output_resolved.parents:
-                self._fail("Choose an output directory outside the source model folder.")
-                return
             output.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             self._fail(f"Could not create output directory: {error}")
