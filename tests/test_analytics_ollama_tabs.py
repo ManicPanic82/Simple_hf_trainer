@@ -52,6 +52,8 @@ def test_analytics_receives_real_training_metrics(qapp, tmp_path: Path) -> None:
     assert tab.gpu_chart.points["GPU %"] == [(10.0, 72.0)]
     assert tab.gpu_chart.points["VRAM %"] == [(10.0, 4096 / 6144 * 100)]
     assert tab.history_table.rowCount() == 1
+    assert "Grad norm: 0.6" in tab.run_stats.text()
+    assert "Tokens/sec: 42" in tab.run_stats.text()
     assert "2,000 known rows" in tab.dataset_summary.text()
     assert "1 prepared" in tab.dataset_summary.text()
     assert "unsloth-1" in tab.overview.text()
