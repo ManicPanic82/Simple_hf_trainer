@@ -184,6 +184,11 @@ class OllamaExportTab(TabPage):
             self._fail("Ollama model name must be 2–64 lowercase letters, numbers, dots, underscores or hyphens.")
             return
         try:
+            source_resolved = source.resolve()
+            output_resolved = output.resolve()
+            if output_resolved == source_resolved or source_resolved in output_resolved.parents:
+                self._fail("Choose an output directory outside the source model folder.")
+                return
             output.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             self._fail(f"Could not create output directory: {error}")
@@ -194,6 +199,16 @@ class OllamaExportTab(TabPage):
         modelfile = output / f"{name}.Modelfile"
         self._final_gguf = final_path
         self._modelfile = modelfile
+        protected_outputs = [final_path, modelfile]
+        if quant != "F16":
+            protected_outputs.append(f16_path)
+        existing = [path for path in protected_outputs if path.exists()]
+        if existing:
+            self._fail(
+                "Refusing to overwrite existing export files: "
+                + ", ".join(str(path) for path in existing)
+            )
+            return
 
         self._stages = [
             ("Convert HF to GGUF (F16)", str(python),
@@ -208,7 +223,11 @@ class OllamaExportTab(TabPage):
                 "Convert HF to GGUF (F16)", str(python),
                 [str(converter), "--outfile", str(final_path), "--outtype", "f16", str(source)],
             )
-        modelfile.write_text(f'FROM "{final_path.as_posix()}"\n', encoding="utf-8")
+        try:
+            modelfile.write_text(f'FROM "{final_path.as_posix()}"\n', encoding="utf-8")
+        except OSError as error:
+            self._fail(f"Could not write Ollama Modelfile: {error}")
+            return
         self._stages.extend([
             ("Import into Ollama", str(ollama), ["create", name, "-f", str(modelfile)]),
             ("Verify Ollama model", str(ollama), ["show", name]),
