@@ -1,4 +1,4 @@
-"""Tests for the live Training tab dashboard."""
+"""Tests for metric widgets and the dedicated Analytics workspace."""
 
 from __future__ import annotations
 
