@@ -179,7 +179,7 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     assert tab.export_combo.currentData() == "full_model"
 
     dataset = tmp_path / "data.jsonl"
-    dataset.write_text('{"text":"hi"}\\n', encoding="utf-8")
+    dataset.write_text('{"text":"hi"}\n', encoding="utf-8")
     tab.output_model_name_edit.setText("My-Custom-Qwen")
     full_cfg = tab._build_config("job-full", "a-model", str(dataset))
     assert full_cfg["training_method"] == "full_finetune"
