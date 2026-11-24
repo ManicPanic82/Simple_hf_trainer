@@ -843,7 +843,7 @@ class TrainingTab(TabPage):
         self.cancel_button.setEnabled(False)
 
     def _on_worker_failed_to_start(self, error: str) -> None:
-        self.dashboard.finish_run()
+        # Analytics owns metric and hardware visualisation.
         if self._active_job_id:
             self._job_manager.mark_failed(self._active_job_id, message=f"Failed to start: {error}")
             self._active_job_id = None
