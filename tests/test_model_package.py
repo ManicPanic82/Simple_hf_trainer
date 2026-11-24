@@ -133,3 +133,33 @@ def test_training_uses_a_snapshot_and_records_original_dataset_path(tmp_path: Pa
     archived = output / "training_data" / "train" / "train.jsonl"
     assert archived.read_text(encoding="utf-8") == '{"text":"original"}\n'
     assert manifest["datasets"][0]["source_path"] == str(source.resolve())
+
+
+def test_full_finetuning_package_is_identified_as_standalone_model(tmp_path: Path) -> None:
+    dataset = tmp_path / "train.jsonl"
+    dataset.write_text('{"text":"example"}\\n', encoding="utf-8")
+    output = tmp_path / "full-model-package"
+    output.mkdir()
+
+    manifest = write_training_package(
+        output_dir=output,
+        config={
+            "job_id": "job-full",
+            "model_name": "Qwen/Qwen3.5-2B",
+            "training_method": "full_finetune",
+            "precision": "fp16",
+            "optim": "adamw_8bit",
+            "export_strategy": "full_model",
+        },
+        metrics=[],
+        summary={"status": "completed"},
+        train_dataset=dataset,
+        eval_dataset=None,
+    )
+
+    readme = (output / "README.md").read_text(encoding="utf-8")
+    assert manifest["package_type"] == "full_finetuned_model"
+    assert "complete model weights updated by full fine-tuning" in readme
+    assert "Training method: " + "full_finetune" in readme
+    assert "Precision: " + "fp16" in readme
+    assert "Optimizer: " + "adamw_8bit" in readme
