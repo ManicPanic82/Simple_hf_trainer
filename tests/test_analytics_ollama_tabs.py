@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from app.state import AppState
-from services.job_manager import JobManager
+from workers.job_manager import JobManager
 from ui.analytics_tab import AnalyticsTab
 from ui.ollama_export_tab import OllamaExportTab
 
