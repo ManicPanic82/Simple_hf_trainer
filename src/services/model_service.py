@@ -435,8 +435,6 @@ class ModelService:
             safe_folder = repo_id.replace("/", "--")
             destination = models_dir / safe_folder
 
-        destination.mkdir(parents=True, exist_ok=True)
-
         def emit(fraction: float, message: str) -> None:
             if progress_callback:
                 progress_callback(fraction, message)
