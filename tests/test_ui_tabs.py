@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QDialog, QHeaderView
 
 from app.state import AppState
 from services.engine_registry import EngineState, EngineStatus
+from services.model_service import HubModelRecord
 from services.settings_service import (
     AppSettings,
     EngineSettings,
@@ -324,3 +325,41 @@ def test_local_model_library_keeps_name_column_readable_and_resizable(
     assert header.sectionResizeMode(2) == QHeaderView.ResizeMode.Interactive
     assert header.sectionResizeMode(3) == QHeaderView.ResizeMode.Interactive
     assert header.sectionResizeMode(4) == QHeaderView.ResizeMode.Stretch
+
+
+
+def test_hub_metadata_displays_architecture_separately_from_task(qapp, tmp_path):
+    settings = settings_with(
+        tmp_path,
+        models_dir=tmp_path / "models",
+        datasets_dir=tmp_path / "datasets",
+        outputs_dir=tmp_path / "outputs",
+        hf_cache_dir=tmp_path / "cache",
+    )
+    tab = ModelsTab(
+        AppState(), StorageService(settings), scan_on_init=False
+    )
+    tab._selected_hub_model = HubModelRecord(
+        repo_id="org/model",
+        author="org",
+        name="model",
+        downloads=0,
+        likes=0,
+        pipeline_tag="text-generation",
+    )
+
+    tab._on_hub_model_info(
+        "org/model",
+        {
+            "total_size_mb": 100.0,
+            "files": [],
+            "architecture": "Qwen2ForCausalLM",
+            "model_type": "qwen2",
+            "pipeline_tag": "text-generation",
+            "vram_detail": "Estimate only",
+        },
+    )
+
+    assert tab.compat_arch_row.value.text() == (
+        "Qwen2ForCausalLM · Task: text-generation"
+    )
