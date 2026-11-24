@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -231,3 +233,91 @@ def test_prepare_dataset_rejects_missing_selected_columns(tmp_path: Path):
             instruction_col="missing_prompt",
             output_col="answer",
         )
+
+
+def test_prepare_dataset_rejects_source_as_output_path(tmp_path: Path):
+    source = tmp_path / "training.jsonl"
+    original = '{"instruction":"Question","output":"Answer"}\n'
+    source.write_text(original, encoding="utf-8")
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="different from the source"):
+        service.prepare_dataset(source, output_path=source)
+
+    assert source.read_text(encoding="utf-8") == original
+
+
+def test_prepare_dataset_rejects_malformed_jsonl_without_partial_output(tmp_path: Path):
+    source = tmp_path / "training.jsonl"
+    source.write_text(
+        '{"instruction":"Question","output":"Answer"}\n'
+        '{invalid json}\n',
+        encoding="utf-8",
+    )
+    destination = tmp_path / "prepared.jsonl"
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="Invalid JSONL record at line 2"):
+        service.prepare_dataset(source, output_path=destination)
+
+    assert not destination.exists()
+
+
+def test_prepare_dataset_rejects_non_object_jsonl_record(tmp_path: Path):
+    source = tmp_path / "training.jsonl"
+    source.write_text(
+        '{"instruction":"Question","output":"Answer"}\n'
+        '["not", "an", "object"]\n',
+        encoding="utf-8",
+    )
+    destination = tmp_path / "prepared.jsonl"
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="line 2.*must be an object"):
+        service.prepare_dataset(source, output_path=destination)
+
+    assert not destination.exists()
+
+
+def test_prepare_dataset_rejects_empty_instruction_or_output(tmp_path: Path):
+    source = tmp_path / "training.jsonl"
+    source.write_text(
+        '{"instruction":"Question","output":"  "}\n',
+        encoding="utf-8",
+    )
+    destination = tmp_path / "prepared.jsonl"
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="empty instruction or output"):
+        service.prepare_dataset(source, output_path=destination)
+
+    assert not destination.exists()
+
+
+def test_prepare_dataset_preserves_existing_output_on_failure(tmp_path: Path):
+    source = tmp_path / "training.jsonl"
+    source.write_text(
+        '{"instruction":"Question","output":"Answer"}\n'
+        '{invalid json}\n',
+        encoding="utf-8",
+    )
+    destination = tmp_path / "prepared.jsonl"
+    destination.write_text("existing output\n", encoding="utf-8")
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="Invalid JSONL record at line 2"):
+        service.prepare_dataset(source, output_path=destination)
+
+    assert destination.read_text(encoding="utf-8") == "existing output\n"
+
+
+def test_prepare_dataset_rejects_empty_dataset(tmp_path: Path):
+    source = tmp_path / "training.jsonl"
+    source.write_text("\n  \n", encoding="utf-8")
+    destination = tmp_path / "prepared.jsonl"
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="no usable rows"):
+        service.prepare_dataset(source, output_path=destination)
+
+    assert not destination.exists()
