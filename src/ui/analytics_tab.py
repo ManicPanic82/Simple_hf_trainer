@@ -96,6 +96,11 @@ class AnalyticsTab(TabPage):
         self.overview = QLabel("No training metrics received yet.", self)
         self.overview.setObjectName("StripValue")
         self.add(self.overview)
+        self.latest_metrics: dict[str, float] = {}
+        self.run_stats = QLabel("Epoch: — · Loss: — · Eval loss: — · LR: — · Grad norm: — · Tokens/sec: —", self)
+        self.run_stats.setObjectName("Muted")
+        self.run_stats.setWordWrap(True)
+        self.add(self.run_stats)
 
         dataset_title = QLabel("Dataset overview", self)
         dataset_title.setObjectName("SectionLabel")
@@ -206,6 +211,17 @@ class AnalyticsTab(TabPage):
         name = str(item.get("name", ""))
         step = int(item.get("step", 0))
         value = float(item.get("value", 0.0))
+        self.latest_metrics[name] = value
+        stat_names = (
+            ("epoch", "Epoch"), ("loss", "Loss"), ("eval_loss", "Eval loss"),
+            ("learning_rate", "LR"), ("grad_norm", "Grad norm"),
+            ("tokens_per_second", "Tokens/sec"),
+        )
+        self.run_stats.setText(" · ".join(
+            f"{label}: {self.latest_metrics[key]:.4g}" if key in self.latest_metrics
+            else f"{label}: —"
+            for key, label in stat_names
+        ))
         if name in self.loss_chart.points:
             self.loss_chart.add_point(name, step, value)
         elif name == "learning_rate":
