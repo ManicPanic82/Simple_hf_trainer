@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments (never commit)
+.venv/
+venv/
+environments/
+
+# Local application settings and evidence scratch space
+config/settings.json
+config/settings.local.json
+.evidence-tmp/
+logs/
+*.log
+
+# Model weights, datasets, training output, caches
+models/
+datasets/
+outputs/
+hf-cache/
+# Created by Unsloth at import time in whatever directory it runs from
+unsloth_compiled_cache/
+docs/evidence/unsloth-lora-run/
+docs/evidence/heretic-run/
+*.safetensors
+*.gguf
+
+# Editor/tool backup files
+*.bak
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/

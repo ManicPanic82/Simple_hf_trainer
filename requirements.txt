@@ -1,0 +1,8 @@
+# Runtime dependencies for the desktop application environment.
+#
+# The ML engines (Unsloth, Heretic) are NOT installed here. They live in their
+# own isolated environments; see docs/INSTALLATION.md.
+PySide6>=6.7,<7
+huggingface_hub>=0.30
+datasets>=3.0
+psutil>=6.0

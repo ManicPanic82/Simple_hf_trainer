@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "paths": {
+    "models_dir": "${APP_HOME}/models",
+    "datasets_dir": "${APP_HOME}/datasets",
+    "outputs_dir": "${APP_HOME}/outputs",
+    "hf_cache_dir": "${HF_HOME}"
+  },
+  "engines": {
+    "unsloth_python": "",
+    "heretic_python": ""
+  },
+  "ui": {
+    "poll_interval_ms": 2000
+  }
+}
