@@ -1,27 +1,31 @@
 # Simple HF Trainer
 
-A local-first **Windows desktop application** for four connected workflows:
+A local-first **Windows desktop application** for six connected workflows:
 
 1. **Models** — discover, download, and manage Hugging Face models.
 2. **Datasets** — find, import, preview, and prepare Hugging Face datasets.
 3. **Training** — fine-tune compatible models with the real **Unsloth** engine (LoRA/QLoRA).
-4. **Heretic** — modify compatible models with the real **Heretic 2.x** tool (ARA, abliteration, scorer plugins and presets).
+4. **Analytics** — inspect live training/evaluation metrics, model architecture, hardware history and persisted job outcomes.
+5. **Heretic** — modify compatible models with the real **Heretic 2.x** tool (ARA, abliteration, scorer plugins and presets).
+6. **Ollama Export** — convert merged Hugging Face models to GGUF with llama.cpp, quantise them, and import/verify them in Ollama.
 
-It is deliberately narrow: no chat, no RAG, no agents, no inference server, no cloud
+It is deliberately narrow: no chat, no RAG, no agents, no built-in inference server, no cloud
 training, no plugin framework. The GPU (a 6 GB GTX 1660 in the reference setup) is treated
 as the scarce resource it is.
 
 ## Current status
 
-The `fix/restore-four-tab-contract` development branch contains the four-tab desktop
-application and working implementations for model discovery, dataset preparation,
-Unsloth fine-tuning, and Heretic abliteration. This is a development branch, not a
+The `fix/restore-four-tab-contract` development branch contains the six-tab desktop
+application and workflows for model discovery, dataset preparation, Unsloth fine-tuning,
+live analytics, Heretic abliteration, and GGUF/Ollama export. This is a development branch, not a
 release-ready claim: the initial project plan called for a desktop foundation first,
 and the engine workflows on this branch are ahead of that original phase boundary.
 
 | Area | Current implementation |
 | --- | --- |
-| Four-tab PySide6 desktop shell | Implemented |
+| Six-tab PySide6 desktop shell | Implemented; Windows validation pending |
+| Analytics | Live loss/evaluation/LR/performance charts, hardware history, architecture view and persisted job history |
+| Ollama Export | llama.cpp HF-to-GGUF conversion, optional quantisation, Ollama import and verification; requires user-configured tool paths |
 | Hardware status, settings, storage paths | Implemented; hardware values degrade gracefully when probes are unavailable |
 | Hugging Face token storage | Windows Credential Manager integration |
 | Worker protocol and process runner | JSON-lines protocol, validation, background QProcess execution |
@@ -105,7 +109,7 @@ not download models or datasets.
 main.py                     entry point
 config/defaults.json        default settings (no secrets)
 src/app/                    bootstrap, paths, logging, shared state
-src/ui/                     main window, four tabs, widgets, theme
+src/ui/                     main window, six tabs, widgets, theme
 src/services/               settings, storage, hardware monitor, engines, credentials
 src/workers/                protocol, QProcess worker runner, GPU-exclusive job manager
 scripts/                    environment probe, engine verification, screenshots
