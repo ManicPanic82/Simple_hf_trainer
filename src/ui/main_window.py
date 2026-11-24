@@ -1,4 +1,4 @@
-"""Main application window: header, four workflow tabs, and shared status strip."""
+"""Main application window: six workflow tabs and shared status strip."""
 
 from __future__ import annotations
 
@@ -22,8 +22,10 @@ from app.state import Notice
 from services.engine_registry import EngineState, EngineStatus
 from ui.components import Pill
 from ui.datasets_tab import DatasetsTab
+from ui.analytics_tab import AnalyticsTab
 from ui.heretic_tab import HereticTab
 from ui.models_tab import ModelsTab
+from ui.ollama_export_tab import OllamaExportTab
 from ui.settings_dialog import SettingsDialog
 from ui.status_strip import StatusStrip
 from ui.training_tab import TrainingTab
@@ -74,9 +76,9 @@ class NoticeBanner(QFrame):
 
 
 class MainWindow(QMainWindow):
-    """The single application window. Four tabs, in fixed order."""
+    """The single application window. Six tabs, in fixed order."""
 
-    TAB_NAMES = ("Models", "Datasets", "Training", "Heretic")
+    TAB_NAMES = ("Models", "Datasets", "Training", "Analytics", "Heretic", "Ollama Export")
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -173,6 +175,7 @@ class MainWindow(QMainWindow):
             self.context.model_service,
             self.context.dataset_service,
         )
+        self.analytics_tab = AnalyticsTab(self.state, self.context.job_manager)
         self.heretic_tab = HereticTab(
             self.state,
             self.context.storage,
@@ -181,12 +184,15 @@ class MainWindow(QMainWindow):
             self.context.model_service,
             credentials=self.context.credentials,
         )
+        self.ollama_export_tab = OllamaExportTab()
         for tab, name in zip(
             (
                 self.models_tab,
                 self.datasets_tab,
                 self.training_tab,
+                self.analytics_tab,
                 self.heretic_tab,
+                self.ollama_export_tab,
             ),
             self.TAB_NAMES,
             strict=True,
@@ -235,7 +241,7 @@ class MainWindow(QMainWindow):
     def _on_use_model_in_heretic(self, model_ref: str) -> None:
         """Select a model and open the Heretic workspace."""
         self.heretic_tab.select_model(model_ref)
-        self.tabs.setCurrentIndex(3)
+        self.tabs.setCurrentIndex(4)
 
     # -- lifecycle -------------------------------------------------------
 
@@ -264,7 +270,7 @@ class MainWindow(QMainWindow):
         """Whether an engine process or local discovery thread is still active."""
         engine_running = any(
             bool(getattr(tab, "worker_running", False))
-            for tab in (self.training_tab, self.heretic_tab)
+            for tab in (self.training_tab, self.heretic_tab, self.ollama_export_tab)
         )
         scan_running = any(
             bool(
@@ -298,6 +304,7 @@ class MainWindow(QMainWindow):
         for tab in (
             self.training_tab,
             self.heretic_tab,
+            self.ollama_export_tab,
             self.models_tab,
             self.datasets_tab,
         ):
@@ -366,6 +373,7 @@ class MainWindow(QMainWindow):
         for tab in (
             self.training_tab,
             self.heretic_tab,
+            self.ollama_export_tab,
             self.models_tab,
             self.datasets_tab,
         ):
