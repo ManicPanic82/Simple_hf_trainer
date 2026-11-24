@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -344,13 +346,21 @@ class DatasetService:
         text_template: str = "alpaca",
     ) -> Path:
         """Transform a dataset into a standard training-ready JSONL file."""
+        source_path = Path(source_path)
         if not source_path.is_file():
             raise FileNotFoundError(f"Source file does not exist: {source_path}")
 
         if output_path is None:
             datasets_dir = self._storage.path_for("datasets_dir")
-            stem = source_path.stem
-            output_path = datasets_dir / f"prepared_{stem}.jsonl"
+            output_path = datasets_dir / f"prepared_{source_path.stem}.jsonl"
+        else:
+            output_path = Path(output_path)
+
+        if source_path.resolve() == output_path.resolve():
+            raise ValueError("Output path must be different from the source dataset.")
+
+        if text_template != "alpaca":
+            raise ValueError(f"Unsupported dataset text template: {text_template}")
 
         preview = self.preview_dataset(source_path, num_rows=1)
         fmt = preview.format
@@ -362,7 +372,6 @@ class DatasetService:
             raise ValueError(
                 "Selected dataset columns are unavailable: " + ", ".join(missing_columns)
             )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         def format_alpaca(inst: str, inp: str, out: str) -> str:
             if inp.strip():
@@ -373,91 +382,102 @@ class DatasetService:
                 )
             return f"### Instruction:\n{inst.strip()}\n\n### Response:\n{out.strip()}"
 
+        def make_record(row: dict[str, Any], row_number: int) -> dict[str, str]:
+            inst = str(row.get(instruction_col, "") or "").strip()
+            inp = str(row.get(input_col, "") or "").strip() if input_col else ""
+            resp = str(row.get(output_col, "") or "").strip()
+            if not inst or not resp:
+                raise ValueError(
+                    f"Dataset row {row_number} has an empty instruction or output."
+                )
+            return {
+                "instruction": inst,
+                "input": inp,
+                "output": resp,
+                "text": format_alpaca(inst, inp, resp),
+            }
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path: Path | None = None
         rows_written = 0
-        with open(output_path, "w", encoding="utf-8") as out_f:
-            if fmt == "jsonl":
-                with open(source_path, encoding="utf-8", errors="replace") as in_f:
-                    for line in in_f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            obj = json.loads(line)
-                            if not isinstance(obj, dict):
-                                continue
-                            inst = str(obj.get(instruction_col, "") or "")
-                            inp = str(obj.get(input_col, "") or "") if input_col else ""
-                            resp = str(obj.get(output_col, "") or "")
-                            formatted_text = format_alpaca(inst, inp, resp)
-                            record = {
-                                "instruction": inst,
-                                "input": inp,
-                                "output": resp,
-                                "text": formatted_text,
-                            }
-                            out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                            rows_written += 1
-                        except json.JSONDecodeError:
-                            continue
 
-            elif fmt == "csv":
-                with open(source_path, encoding="utf-8", errors="replace", newline="") as in_f:
-                    reader = csv.DictReader(in_f)
-                    for row in reader:
-                        inst = str(row.get(instruction_col, "") or "")
-                        inp = str(row.get(input_col, "") or "") if input_col else ""
-                        resp = str(row.get(output_col, "") or "")
-                        formatted_text = format_alpaca(inst, inp, resp)
-                        record = {
-                            "instruction": inst,
-                            "input": inp,
-                            "output": resp,
-                            "text": formatted_text,
-                        }
-                        out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                        rows_written += 1
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="\n",
+                dir=output_path.parent,
+                prefix=f".{output_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as out_f:
+                temporary_path = Path(out_f.name)
 
-            elif fmt in ("parquet", "arrow"):
-                if fmt == "parquet":
-                    import pyarrow.parquet as pq
-
-                    table = pq.read_table(source_path)
-                else:
-                    table = _read_arrow_table(source_path)
-                pylist = table.to_pylist()
-                for row in pylist:
-                    inst = str(row.get(instruction_col, "") or "")
-                    inp = str(row.get(input_col, "") or "") if input_col else ""
-                    resp = str(row.get(output_col, "") or "")
-                    formatted_text = format_alpaca(inst, inp, resp)
-                    record = {
-                        "instruction": inst,
-                        "input": inp,
-                        "output": resp,
-                        "text": formatted_text,
-                    }
+                def write_row(row: dict[str, Any], row_number: int) -> None:
+                    nonlocal rows_written
+                    record = make_record(row, row_number)
                     out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
                     rows_written += 1
 
-            elif fmt == "json":
-                with open(source_path, encoding="utf-8", errors="replace") as in_f:
-                    data = json.load(in_f)
-                    if isinstance(data, list):
-                        for row in data:
-                            if not isinstance(row, dict):
+                if fmt == "jsonl":
+                    with open(source_path, encoding="utf-8", errors="replace") as in_f:
+                        for line_number, line in enumerate(in_f, start=1):
+                            line = line.strip()
+                            if not line:
                                 continue
-                            inst = str(row.get(instruction_col, "") or "")
-                            inp = str(row.get(input_col, "") or "") if input_col else ""
-                            resp = str(row.get(output_col, "") or "")
-                            formatted_text = format_alpaca(inst, inp, resp)
-                            record = {
-                                "instruction": inst,
-                                "input": inp,
-                                "output": resp,
-                                "text": formatted_text,
-                            }
-                            out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                            rows_written += 1
+                            try:
+                                row = json.loads(line)
+                            except json.JSONDecodeError as error:
+                                raise ValueError(
+                                    f"Invalid JSONL record at line {line_number}: {error}"
+                                ) from error
+                            if not isinstance(row, dict):
+                                raise ValueError(
+                                    f"JSONL record at line {line_number} must be an object."
+                                )
+                            write_row(row, line_number)
+
+                elif fmt == "csv":
+                    with open(
+                        source_path, encoding="utf-8", errors="replace", newline=""
+                    ) as in_f:
+                        reader = csv.DictReader(in_f)
+                        for row_number, row in enumerate(reader, start=1):
+                            write_row(dict(row), row_number)
+
+                elif fmt in ("parquet", "arrow"):
+                    if fmt == "parquet":
+                        import pyarrow.parquet as pq
+
+                        table = pq.read_table(source_path)
+                    else:
+                        table = _read_arrow_table(source_path)
+                    for row_number, row in enumerate(table.to_pylist(), start=1):
+                        if not isinstance(row, dict):
+                            raise ValueError(f"Dataset row {row_number} must be an object.")
+                        write_row(row, row_number)
+
+                elif fmt == "json":
+                    with open(source_path, encoding="utf-8", errors="replace") as in_f:
+                        data = json.load(in_f)
+                    if not isinstance(data, list):
+                        raise ValueError("JSON dataset must contain a top-level array.")
+                    for row_number, row in enumerate(data, start=1):
+                        if not isinstance(row, dict):
+                            raise ValueError(f"JSON dataset row {row_number} must be an object.")
+                        write_row(row, row_number)
+
+                else:
+                    raise ValueError(f"Unsupported dataset format: {fmt}")
+
+                if rows_written == 0:
+                    raise ValueError("Dataset preparation produced no usable rows.")
+
+            os.replace(temporary_path, output_path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
         logger.info("Prepared %d rows written to %s", rows_written, output_path)
         return output_path
