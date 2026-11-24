@@ -132,7 +132,11 @@ def write_training_package(
         "schema_version": 1,
         "created_at": datetime.now(UTC).isoformat(),
         "package_type": (
-            "lora_adapter" if config.get("export_strategy") == "adapter" else "merged_model"
+            "lora_adapter"
+            if config.get("export_strategy") == "adapter"
+            else "full_finetuned_model"
+            if config.get("export_strategy") == "full_model"
+            else "merged_model"
         ),
         "base_model": config.get("model_name"),
         "export_strategy": config.get("export_strategy"),
@@ -143,12 +147,18 @@ def write_training_package(
     _write_json(output_dir / "training_summary.json", summary)
     _write_json(output_dir / "training_metrics.json", {"schema_version": 1, "metrics": metrics})
 
-    adapter_note = (
-        "This package contains a LoRA adapter, not a complete standalone model. "
-        "Load it together with the base model recorded in training_config.json."
-        if config.get("export_strategy") == "adapter"
-        else "This package contains the full merged model weights and tokenizer."
-    )
+    if config.get("export_strategy") == "adapter":
+        adapter_note = (
+            "This package contains a LoRA adapter, not a complete standalone model. "
+            "Load it together with the base model recorded in training_config.json."
+        )
+    elif config.get("export_strategy") == "full_model":
+        adapter_note = (
+            "This package contains the complete model weights updated by full fine-tuning, "
+            "plus the tokenizer. All base-model parameters were trainable."
+        )
+    else:
+        adapter_note = "This package contains the full merged model weights and tokenizer."
     readme = f"""# Fine-tuned model package
 
 {adapter_note}
@@ -157,6 +167,9 @@ def write_training_package(
 
 - Base model: `{config.get("model_name", "unknown")}`
 - Export strategy: `{config.get("export_strategy", "unknown")}`
+- Training method: `{config.get("training_method", "legacy")}`
+- Precision: `{config.get("precision", "unknown")}`
+- Optimizer: `{config.get("optim", "unknown")}`
 - Job ID: `{config.get("job_id", "unknown")}`
 
 ## Package contents
