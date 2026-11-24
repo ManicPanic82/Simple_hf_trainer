@@ -161,7 +161,7 @@ class TrainingTab(TabPage):
             "8-bit optimizers reduce optimizer memory. Availability depends on the installed "
             "bitsandbytes/Unsloth environment."
         )
-        grid.addWidget(self.optimizer_combo, 6, 1, 1, 3)
+        grid.addWidget(self.optimizer_combo, 7, 1, 1, 3)
 
         grid.addWidget(QLabel("Save Strategy:", cfg_card), 8, 0)
         self.save_strategy_combo = QComboBox(cfg_card)
@@ -195,7 +195,7 @@ class TrainingTab(TabPage):
         self.eval_dataset_combo.setEditable(True)
         self.eval_dataset_combo.setPlaceholderText("Optional; required when evaluation is enabled")
         self.eval_dataset_combo.addItem("No evaluation dataset", "")
-        grid.addWidget(self.eval_dataset_combo, 9, 1, 1, 3)
+        grid.addWidget(self.eval_dataset_combo, 10, 1, 1, 3)
 
         # Export strategy. A merged fp16 model can be picked as the base model
         # for a later continued-training job; adapter-only stays small.
@@ -208,7 +208,7 @@ class TrainingTab(TabPage):
             "selected as the base model for continued training. It needs several GB of "
             "disk space and RAM. Adapter only saves the small LoRA modules."
         )
-        grid.addWidget(self.export_combo, 10, 1, 1, 3)
+        grid.addWidget(self.export_combo, 11, 1, 1, 3)
 
         grid.addWidget(QLabel("Output model name:", cfg_card), 12, 0)
         self.output_model_name_edit = QLineEdit(cfg_card)
@@ -218,7 +218,7 @@ class TrainingTab(TabPage):
             "use the source model name with '-finetuned' appended. The source model "
             "is never modified."
         )
-        grid.addWidget(self.output_model_name_edit, 11, 1, 1, 3)
+        grid.addWidget(self.output_model_name_edit, 12, 1, 1, 3)
         self.export_combo.currentIndexChanged.connect(self._update_export_name_state)
 
         # Training method and memory/optimisation controls. Full fine-tuning is
@@ -229,7 +229,7 @@ class TrainingTab(TabPage):
         self.training_method_combo.addItem("LoRA (adapter)", "lora")
         self.training_method_combo.addItem("QLoRA (4-bit base + adapter)", "qlora")
         self.training_method_combo.currentIndexChanged.connect(self._update_training_method_state)
-        grid.addWidget(self.training_method_combo, 12, 2, 1, 3)
+        grid.addWidget(self.training_method_combo, 2, 1, 1, 3)
 
         grid.addWidget(QLabel("Training Precision:", cfg_card), 13, 0)
         self.precision_combo = QComboBox(cfg_card)
