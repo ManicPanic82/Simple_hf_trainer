@@ -82,3 +82,52 @@ def test_ollama_export_requires_hugging_face_model_directory(qapp, tmp_path: Pat
     assert not tab.worker_running
     assert tab.status_row.value.text() == "Failed"
     assert "config.json" in tab.log.text()
+
+def test_ollama_export_refuses_output_inside_source_model(qapp, tmp_path: Path) -> None:
+    source = tmp_path / "merged-model"
+    source.mkdir()
+    (source / "config.json").write_text(json.dumps({"model_type": "llama"}), encoding="utf-8")
+    python = tmp_path / "python.exe"
+    converter = tmp_path / "convert_hf_to_gguf.py"
+    ollama = tmp_path / "ollama.exe"
+    for path in (python, converter, ollama):
+        path.write_text("placeholder", encoding="utf-8")
+
+    tab = OllamaExportTab()
+    tab.source_edit.setText(str(source))
+    tab.python_edit.setText(str(python))
+    tab.converter_edit.setText(str(converter))
+    tab.ollama_edit.setText(str(ollama))
+    tab.output_edit.setText(str(source / "exports"))
+    tab.start_export()
+
+    assert not (source / "exports").exists()
+    assert not tab.worker_running
+    assert "outside the source model folder" in tab.log.text()
+
+
+def test_ollama_export_refuses_to_overwrite_existing_gguf(qapp, tmp_path: Path) -> None:
+    source = tmp_path / "merged-model"
+    output = tmp_path / "exports"
+    source.mkdir()
+    output.mkdir()
+    (source / "config.json").write_text(json.dumps({"model_type": "llama"}), encoding="utf-8")
+    python = tmp_path / "python.exe"
+    converter = tmp_path / "convert_hf_to_gguf.py"
+    ollama = tmp_path / "ollama.exe"
+    for path in (python, converter, ollama):
+        path.write_text("placeholder", encoding="utf-8")
+    (output / "my-finetuned-model.gguf").write_text("existing", encoding="utf-8")
+
+    tab = OllamaExportTab()
+    tab.source_edit.setText(str(source))
+    tab.python_edit.setText(str(python))
+    tab.converter_edit.setText(str(converter))
+    tab.ollama_edit.setText(str(ollama))
+    tab.output_edit.setText(str(output))
+    tab.quant_combo.setCurrentIndex(3)
+    tab.start_export()
+
+    assert not tab.worker_running
+    assert "Refusing to overwrite existing export files" in tab.log.text()
+    assert (output / "my-finetuned-model.gguf").read_text(encoding="utf-8") == "existing"
