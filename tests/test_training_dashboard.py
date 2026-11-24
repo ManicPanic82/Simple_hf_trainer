@@ -8,8 +8,10 @@ from app.state import AppState
 from services.hardware_monitor import GpuStats, HardwareSnapshot
 from services.settings_service import AppSettings, PathSettings
 from services.storage_service import StorageService
+from ui.analytics_tab import AnalyticsTab
 from ui.training_dashboard import ArchitectureView, MetricChart, TrainingDashboard
 from ui.training_tab import TrainingTab
+from workers.job_manager import JobManager
 from workers.protocol import MessageType, WorkerMessage
 
 
@@ -83,7 +85,7 @@ def test_dashboard_tracks_metrics_timing_and_hardware(qapp) -> None:
     assert dashboard.loss_chart.history["loss"] == []
 
 
-def test_training_tab_routes_architecture_and_metrics_to_dashboard(qapp, tmp_path: Path) -> None:
+def test_training_worker_messages_feed_dedicated_analytics_tab(qapp, tmp_path: Path) -> None:
     settings = AppSettings(
         paths=PathSettings(
             models_dir=tmp_path / "models",
@@ -92,14 +94,16 @@ def test_training_tab_routes_architecture_and_metrics_to_dashboard(qapp, tmp_pat
             hf_cache_dir=tmp_path / "cache",
         )
     )
-    tab = TrainingTab(AppState(), StorageService(settings))
+    state = AppState()
+    tab = TrainingTab(state, StorageService(settings))
+    analytics = AnalyticsTab(
+        state, JobManager(history_file=tmp_path / "jobs.json")
+    )
     tab._on_worker_message(
         WorkerMessage(
             type=MessageType.ARCHITECTURE,
             job_id="job-1",
-            payload={
-                "architecture": {"model_type": "llama", "num_hidden_layers": 12},
-            },
+            payload={"architecture": {"model_type": "llama", "num_hidden_layers": 12}},
         )
     )
     tab._on_worker_message(
@@ -110,5 +114,6 @@ def test_training_tab_routes_architecture_and_metrics_to_dashboard(qapp, tmp_pat
         )
     )
 
-    assert tab.dashboard.architecture.metadata["model_type"] == "llama"
-    assert tab.dashboard.loss_chart.history["loss"] == [(3, 0.75)]
+    assert analytics.architecture.metadata["model_type"] == "llama"
+    assert analytics.loss_chart.points["loss"] == [(3.0, 0.75)]
+    assert not hasattr(tab, "dashboard")
