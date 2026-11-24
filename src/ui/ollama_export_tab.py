@@ -5,10 +5,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QProcess
+from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QGridLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QHBoxLayout, QWidget,
+    QComboBox,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QWidget,
 )
 
 from ui.components import Card, FieldRow
@@ -110,7 +116,7 @@ class OllamaExportTab(TabPage):
         self.add(self.status_row)
         self.log = QLabel("Select a merged Hugging Face model to begin.")
         self.log.setObjectName("Console")
-        self.log.setTextInteractionFlags(self.log.textInteractionFlags() | self.log.textInteractionFlags().TextSelectableByMouse)
+        self.log.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.log.setWordWrap(True)
         self.log.setMinimumHeight(150)
         self.add(self.log)
