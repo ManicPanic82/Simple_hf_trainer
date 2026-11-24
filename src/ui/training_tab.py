@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QGridLayout,
     QHBoxLayout,
@@ -74,7 +75,7 @@ class TrainingTab(TabPage):
         # --- Configuration Card ---
         cfg_card = Card(
             "Fine-tuning configuration",
-            "Select a model and prepared dataset, and configure 4-bit LoRA hyperparameters. "
+            "Full fine-tuning is the default. LoRA and QLoRA are optional adapter methods. "
             "Each export archives the exact dataset files and training records with the model.",
         )
 
@@ -217,7 +218,53 @@ class TrainingTab(TabPage):
         grid.addWidget(self.output_model_name_edit, 11, 1, 1, 3)
         self.export_combo.currentIndexChanged.connect(self._update_export_name_state)
 
+        # Training method and memory/optimisation controls. Full fine-tuning is
+        # deliberately the default; adapter methods remain explicit alternatives.
+        grid.addWidget(QLabel("Training Method:", cfg_card), 12, 0)
+        self.training_method_combo = QComboBox(cfg_card)
+        self.training_method_combo.addItem("Full fine-tuning (all model weights)", "full_finetune")
+        self.training_method_combo.addItem("LoRA (adapter)", "lora")
+        self.training_method_combo.addItem("QLoRA (4-bit base + adapter)", "qlora")
+        self.training_method_combo.currentIndexChanged.connect(self._update_training_method_state)
+        grid.addWidget(self.training_method_combo, 12, 1, 1, 3)
+
+        grid.addWidget(QLabel("Training Precision:", cfg_card), 13, 0)
+        self.precision_combo = QComboBox(cfg_card)
+        self.precision_combo.addItem("FP16", "fp16")
+        self.precision_combo.addItem("BF16 (supported GPUs only)", "bf16")
+        self.precision_combo.addItem("FP32", "fp32")
+        grid.addWidget(self.precision_combo, 13, 1, 1, 3)
+
+        grid.addWidget(QLabel("Gradient Accumulation:", cfg_card), 14, 0)
+        self.grad_accum_spin = QSpinBox(cfg_card)
+        self.grad_accum_spin.setRange(1, 128)
+        self.grad_accum_spin.setValue(8)
+        self.grad_accum_spin.setToolTip("Effective batch size = per-device batch size × gradient accumulation.")
+        grid.addWidget(self.grad_accum_spin, 14, 1)
+
+        grid.addWidget(QLabel("Gradient Checkpointing:", cfg_card), 14, 2)
+        self.gradient_checkpointing_check = QCheckBox("Enabled", cfg_card)
+        self.gradient_checkpointing_check.setChecked(True)
+        grid.addWidget(self.gradient_checkpointing_check, 14, 3)
+
+        grid.addWidget(QLabel("Weight Decay:", cfg_card), 15, 0)
+        self.weight_decay_edit = QLineEdit("0.01", cfg_card)
+        grid.addWidget(self.weight_decay_edit, 15, 1)
+
+        grid.addWidget(QLabel("Max Gradient Norm:", cfg_card), 15, 2)
+        self.max_grad_norm_edit = QLineEdit("1.0", cfg_card)
+        grid.addWidget(self.max_grad_norm_edit, 15, 3)
+
+        grid.addWidget(QLabel("LR Scheduler:", cfg_card), 16, 0)
+        self.lr_scheduler_combo = QComboBox(cfg_card)
+        self.lr_scheduler_combo.addItem("Cosine", "cosine")
+        self.lr_scheduler_combo.addItem("Linear", "linear")
+        self.lr_scheduler_combo.addItem("Constant", "constant")
+        self.lr_scheduler_combo.addItem("Constant with warmup", "constant_with_warmup")
+        grid.addWidget(self.lr_scheduler_combo, 16, 1, 1, 3)
+
         cfg_card.add_layout(grid)
+        self._update_training_method_state()
         self.add(cfg_card)
 
         # --- Job Control and Live Progress Card ---
@@ -311,7 +358,7 @@ class TrainingTab(TabPage):
 
     def _update_export_name_state(self, *_args) -> None:
         """Only ask for a custom output name when exporting a merged model."""
-        merged = self.export_combo.currentData() == "merged_16bit"
+        merged = self.export_combo.currentData() in {"merged_16bit", "full_model"}
         self.output_model_name_edit.setEnabled(merged)
         self.output_model_name_edit.setToolTip(
             "Name of the merged model's folder in the Models library. Leave blank to "
@@ -319,6 +366,32 @@ class TrainingTab(TabPage):
             "is never modified."
             if merged
             else "Adapter-only exports keep their job folder name."
+        )
+
+    def _update_training_method_state(self, *_args) -> None:
+        """Keep adapter controls and export choices consistent with the selected method."""
+        method = self.training_method_combo.currentData() or "full_finetune"
+        adapter_mode = method in {"lora", "qlora"}
+        self.r_spin.setEnabled(adapter_mode)
+        self.alpha_spin.setEnabled(adapter_mode)
+        self.precision_combo.setEnabled(method != "qlora")
+        if method == "qlora":
+            self.precision_combo.setCurrentIndex(0)
+        current_export = self.export_combo.currentData()
+        self.export_combo.blockSignals(True)
+        self.export_combo.clear()
+        if method == "full_finetune":
+            self.export_combo.addItem("Full model checkpoint", "full_model")
+        else:
+            self.export_combo.addItem("Merged model (16-bit) — reusable base", "merged_16bit")
+            self.export_combo.addItem("Adapter only (LoRA)", "adapter")
+            if current_export == "adapter":
+                self.export_combo.setCurrentIndex(1)
+        self.export_combo.blockSignals(False)
+        self._update_export_name_state()
+        self.export_combo.setToolTip(
+            "Full fine-tuning saves the complete updated model. LoRA/QLoRA can save a "
+            "merged 16-bit model or the adapter only."
         )
 
     def _validate_training_output_root(self, model_name: str) -> str | None:
@@ -527,7 +600,7 @@ class TrainingTab(TabPage):
         if output_safety_error:
             self._state.notify("error", output_safety_error)
             return
-        if self.export_combo.currentData() == "merged_16bit":
+        if self.export_combo.currentData() in {"merged_16bit", "full_model"}:
             try:
                 self._resolve_output_model_name(str(model_name), self.output_model_name_edit.text())
             except ValueError as error:
@@ -573,7 +646,7 @@ class TrainingTab(TabPage):
         job_dir = self._storage.path_for("outputs_dir") / f"unsloth_{job_id}"
         job_dir.mkdir(parents=True, exist_ok=True)
         export_strategy = self.export_combo.currentData() or "merged_16bit"
-        if export_strategy == "merged_16bit":
+        if export_strategy in {"merged_16bit", "full_model"}:
             output_model_name = self._resolve_output_model_name(
                 str(model_name), self.output_model_name_edit.text()
             )
@@ -602,6 +675,13 @@ class TrainingTab(TabPage):
             "max_steps": self.steps_spin.value(),
             "max_seq_length": self.seq_spin.value(),
             "batch_size": self.batch_spin.value(),
+            "gradient_accumulation_steps": self.grad_accum_spin.value(),
+            "gradient_checkpointing": self.gradient_checkpointing_check.isChecked(),
+            "precision": self.precision_combo.currentData() or "fp16",
+            "training_method": self.training_method_combo.currentData() or "full_finetune",
+            "weight_decay": float(self.weight_decay_edit.text().strip() or "0"),
+            "max_grad_norm": float(self.max_grad_norm_edit.text().strip() or "1"),
+            "lr_scheduler_type": self.lr_scheduler_combo.currentData() or "cosine",
             "learning_rate": lr_val,
             "lora_r": self.r_spin.value(),
             "lora_alpha": self.alpha_spin.value(),
