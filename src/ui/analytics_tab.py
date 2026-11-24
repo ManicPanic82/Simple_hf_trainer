@@ -101,7 +101,8 @@ class AnalyticsTab(TabPage):
         self.loss_chart = HistoryChart(("loss", "eval_loss"), self)
         self.lr_chart = HistoryChart(("learning_rate",), self)
         self.gpu_chart = HistoryChart(("GPU %", "VRAM %", "RAM %"), self)
-        self.performance_chart = HistoryChart(("grad_norm", "tokens_per_second"), self)
+        self.gradient_chart = HistoryChart(("grad_norm",), self)
+        self.throughput_chart = HistoryChart(("tokens_per_second",), self)
         self.evaluation_chart = HistoryChart(
             ("eval_accuracy", "eval_f1", "eval_precision", "eval_recall"), self
         )
@@ -109,7 +110,8 @@ class AnalyticsTab(TabPage):
             ("Training and evaluation loss", self.loss_chart),
             ("Learning-rate schedule", self.lr_chart),
             ("Hardware utilisation", self.gpu_chart),
-            ("Training performance", self.performance_chart),
+            ("Gradient norm", self.gradient_chart),
+            ("Training throughput", self.throughput_chart),
             ("Evaluation metrics", self.evaluation_chart),
         )):
             column = index % 2
@@ -180,8 +182,10 @@ class AnalyticsTab(TabPage):
             self.loss_chart.add_point(name, step, value)
         elif name == "learning_rate":
             self.lr_chart.add_point(name, step, value)
-        elif name in self.performance_chart.points:
-            self.performance_chart.add_point(name, step, value)
+        elif name == "grad_norm":
+            self.gradient_chart.add_point(name, step, value)
+        elif name == "tokens_per_second":
+            self.throughput_chart.add_point(name, step, value)
         elif name in self.evaluation_chart.points:
             self.evaluation_chart.add_point(name, step, value)
         self.overview.setText(
