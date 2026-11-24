@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -167,6 +168,7 @@ class TrainingTab(TabPage):
         self.save_strategy_combo.addItem("Disabled", "no")
         self.save_strategy_combo.addItem("Every N steps", "steps")
         self.save_strategy_combo.addItem("Every epoch", "epoch")
+        self.save_strategy_combo.setCurrentIndex(2)
         grid.addWidget(self.save_strategy_combo, 7, 1)
 
         grid.addWidget(QLabel("Save Interval:", cfg_card), 7, 2)
@@ -608,8 +610,13 @@ class TrainingTab(TabPage):
         except ValueError:
             self._state.notify("error", "Weight decay and max gradient norm must be valid numbers.")
             return
-        if weight_decay < 0 or max_grad_norm < 0:
-            self._state.notify("error", "Weight decay and max gradient norm cannot be negative.")
+        if (
+            not math.isfinite(weight_decay)
+            or not math.isfinite(max_grad_norm)
+            or weight_decay < 0
+            or max_grad_norm < 0
+        ):
+            self._state.notify("error", "Weight decay and max gradient norm must be finite and non-negative.")
             return
         resume_checkpoint = self.resume_checkpoint_edit.text().strip()
         if resume_checkpoint and not Path(resume_checkpoint).is_dir():
@@ -698,8 +705,8 @@ class TrainingTab(TabPage):
             "gradient_checkpointing": self.gradient_checkpointing_check.isChecked(),
             "precision": self.precision_combo.currentData() or "fp16",
             "training_method": self.training_method_combo.currentData() or "full_finetune",
-            "weight_decay": float(self.weight_decay_edit.text().strip() or "0"),
-            "max_grad_norm": float(self.max_grad_norm_edit.text().strip() or "1"),
+            "weight_decay": float(self.weight_decay_edit.text().strip()),
+            "max_grad_norm": float(self.max_grad_norm_edit.text().strip()),
             "lr_scheduler_type": self.lr_scheduler_combo.currentData() or "cosine",
             "resume_from_checkpoint": self.resume_checkpoint_edit.text().strip() or None,
             "learning_rate": lr_val,
