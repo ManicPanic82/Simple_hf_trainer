@@ -462,6 +462,7 @@ class MainWindow(QMainWindow):
             self.models_tab,
             self.datasets_tab,
             self.training_tab,
+            self.analytics_tab,
             self.heretic_tab,
         ):
             tab.refresh()
@@ -493,8 +494,8 @@ class MainWindow(QMainWindow):
             self,
             "About Simple HF Trainer",
             f"<b>Simple HF Trainer {APP_VERSION}</b><br><br>"
-            "Phase 1 desktop foundation: model, dataset, training, and Heretic workflows "
-            "are being built on top of verified engine compatibility.<br><br>"
+            "Six workspaces: Models, Datasets, Training, Analytics, Heretic, and Ollama Export."
+            "<br><br>"
             "Unsloth and Heretic are optional, installed in their own isolated Python "
             "environments. Features that are not implemented are labelled as such.",
         )
