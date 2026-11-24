@@ -296,7 +296,7 @@ class ModelsTab(TabPage):
             "Hardware assessment for the reference NVIDIA GeForce GTX 1660 (6 GB VRAM, Compute 7.5).",
         )
         self.compat_model_row = FieldRow("Model", "None selected", caption_width=120)
-        self.compat_arch_row = FieldRow("Architecture", "—", caption_width=120)
+        self.compat_arch_row = FieldRow("Architecture / task", "—", caption_width=120)
         self.compat_assessment_row = FieldRow(
             "Assessment", "Select a model above to assess VRAM fit", caption_width=120
         )
@@ -308,9 +308,7 @@ class ModelsTab(TabPage):
         self.finish()
         self.refresh()
         if scan_on_init:
-            # Keep construction synchronous for callers/tests; MainWindow
-            # schedules the visible scan after startup.
-            self._service.scan_local_models()
+            self._scan_library(publish=True)
 
         # Training/Heretic publish their outputs through shared state. Rescan
         # from disk when that happens; connect after the startup scan so this
@@ -419,7 +417,12 @@ class ModelsTab(TabPage):
             if names
             else "No file list available from the Hub"
         )
-        self.compat_arch_row.set_value(info.get("pipeline_tag") or "Unknown")
+        architecture = info.get("architecture") or info.get("model_type")
+        task = info.get("pipeline_tag")
+        architecture_label = str(architecture) if architecture else "Architecture unavailable"
+        if task:
+            architecture_label = f"{architecture_label} · Task: {task}"
+        self.compat_arch_row.set_value(architecture_label)
         self.compat_assessment_row.set_value(
             info.get("vram_detail") or "Runtime memory estimate unavailable"
         )
@@ -497,17 +500,14 @@ class ModelsTab(TabPage):
     # --- Local library ---
 
     def scan_library(self) -> None:
-        """Scan locally and update the library table synchronously."""
-        records = self._service.scan_local_models()
-        self._on_local_scan_results(records)
+        """Refresh the visible model library without blocking the GUI thread."""
+        self._scan_library(publish=True)
 
     def scan_local_models(self) -> None:
         """Refresh after model changes without recursively publishing again."""
         if self._publishing_models:
             return
-        # Keep the signal path synchronous for callers/tests; the visible UI
-        # scan is scheduled separately.
-        self._service.scan_local_models()
+        self._scan_library(publish=False)
 
     def _scan_library(self, *, publish: bool) -> None:
         worker = self._scan_worker
