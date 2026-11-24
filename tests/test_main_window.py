@@ -8,9 +8,12 @@ from ui.main_window import MainWindow
 def test_main_window_starts_with_exactly_six_workflow_tabs(context) -> None:
     window = MainWindow(context)
     try:
-        assert window.tab_names() == [\n            "Models", "Datasets", "Training", "Analytics", "Heretic", "Ollama Export"\n        ]
-        assert window.tabs.count() == 4
-        assert not hasattr(window, "analytics_tab")
+        assert window.tab_names() == [
+            "Models", "Datasets", "Training", "Analytics", "Heretic", "Ollama Export"
+        ]
+        assert window.tabs.count() == 6
+        assert hasattr(window, "analytics_tab")
+        assert hasattr(window, "ollama_export_tab")
     finally:
         window.close()
 
@@ -27,7 +30,7 @@ def test_model_and_dataset_handoffs_open_the_correct_workspace(context) -> None:
         assert window.training_tab.dataset_combo.currentText() == "C:/datasets/train.jsonl"
 
         window._on_use_model_in_heretic("org/model")
-        assert window.tabs.currentIndex() == 3
+        assert window.tabs.currentIndex() == 4
         assert window.heretic_tab.model_combo.currentText() == "org/model"
     finally:
         window.close()
