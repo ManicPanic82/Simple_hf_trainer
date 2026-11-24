@@ -264,9 +264,7 @@ class DatasetService:
                             f"Invalid JSONL record at line {line_number}: {error}"
                         ) from error
                     if not isinstance(obj, dict):
-                        raise ValueError(
-                            f"JSONL record at line {line_number} must be an object."
-                        )
+                        raise ValueError(f"JSONL record at line {line_number} must be an object.")
                     if not columns:
                         columns = list(obj.keys())
                     rows.append(obj)
@@ -393,9 +391,7 @@ class DatasetService:
             inp = str(row.get(input_col, "") or "").strip() if input_col else ""
             resp = str(row.get(output_col, "") or "").strip()
             if not inst or not resp:
-                raise ValueError(
-                    f"Dataset row {row_number} has an empty instruction or output."
-                )
+                raise ValueError(f"Dataset row {row_number} has an empty instruction or output.")
             return {
                 "instruction": inst,
                 "input": inp,
@@ -444,9 +440,7 @@ class DatasetService:
                             write_row(row, line_number)
 
                 elif fmt == "csv":
-                    with open(
-                        source_path, encoding="utf-8", errors="replace", newline=""
-                    ) as in_f:
+                    with open(source_path, encoding="utf-8", errors="replace", newline="") as in_f:
                         reader = csv.DictReader(in_f)
                         for row_number, row in enumerate(reader, start=1):
                             write_row(dict(row), row_number)
