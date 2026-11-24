@@ -31,6 +31,7 @@ class AppState(QObject):
     notice = Signal(object)  # Notice
     models_changed = Signal(object)  # list[LocalModelRecord]
     datasets_changed = Signal(object)  # list[LocalDatasetRecord]
+    metric_changed = Signal(object)  # dict[str, object]
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -39,10 +40,23 @@ class AppState(QObject):
         self.job: JobSnapshot | None = None
         self.models: list[object] = []
         self.datasets: list[object] = []
+        self.metric_history: list[dict[str, object]] = []
+        self.hardware_history: list[HardwareSnapshot] = []
 
     def publish_hardware(self, snapshot: HardwareSnapshot) -> None:
         self.hardware = snapshot
+        self.hardware_history.append(snapshot)
+        del self.hardware_history[:-1200]
         self.hardware_changed.emit(snapshot)
+
+    def publish_metric(self, name: str, step: int, value: float, job_id: str | None = None) -> None:
+        """Publish a genuine numeric metric from a worker and retain bounded history."""
+        item: dict[str, object] = {
+            "name": str(name), "step": int(step), "value": float(value), "job_id": job_id
+        }
+        self.metric_history.append(item)
+        del self.metric_history[:-10000]
+        self.metric_changed.emit(item)
 
     def publish_engines(self, statuses: dict[str, object]) -> None:
         self.engines = statuses
