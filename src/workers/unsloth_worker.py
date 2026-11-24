@@ -338,6 +338,10 @@ def run_worker(cfg: dict) -> int:
         )
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
+    if resume_from_checkpoint and not Path(resume_from_checkpoint).is_dir():
+        emit("error", job_id, {"message": f"Resume checkpoint folder not found: {resume_from_checkpoint}"})
+        emit("job_complete", job_id, {"success": False, "exit_code": 1})
+        return 1
     if eval_strategy != "no" and not eval_dataset_path_str:
         emit(
             "error",
@@ -427,7 +431,7 @@ def run_worker(cfg: dict) -> int:
         emit("ready", payload={"engine": "unsloth", "version": engine_version})
         print("[checkpoint] READY emitted", file=sys.stderr, flush=True)
     except Exception as error:
-        emit("error", job_id, {"message": f"Failed to import Unsloth: {error}"})
+        emit("error", job_id, {"message": f"Failed to initialize Unsloth or validate the training hardware: {error}"})
         emit("job_complete", job_id, {"success": False, "exit_code": 1})
         return 1
 
@@ -786,6 +790,9 @@ def run_worker(cfg: dict) -> int:
             "evaluation_rows": len(eval_dataset) if eval_dataset is not None else None,
             "engine": "unsloth",
             "engine_version": engine_version,
+            "training_method": training_method,
+            "precision": precision,
+            "optimizer": optim,
         }
         write_training_package(
             output_dir=output_dir,
