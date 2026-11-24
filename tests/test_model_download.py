@@ -11,9 +11,10 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtCore import Qt
 
 from app.state import AppState
-from services.model_service import DownloadCancelled, ModelService
+from services.model_service import DownloadCancelled, LocalModelRecord, ModelService
 from services.settings_service import AppSettings, PathSettings
 from services.storage_service import StorageService
 from ui.models_tab import ModelDownloadWorker, ModelsTab
@@ -222,3 +223,44 @@ def test_download_rejects_repository_without_model_artifacts(tmp_path, monkeypat
 
     assert (destination / "README.md").is_file()
     assert (destination / "tokenizer.json").is_file()
+
+
+
+def test_initial_library_scan_populates_table_in_background(qapp, tmp_path, wait_for):
+    for name in ("models", "datasets", "outputs", "cache"):
+        (tmp_path / name).mkdir(parents=True, exist_ok=True)
+    settings = AppSettings(
+        paths=PathSettings(
+            models_dir=tmp_path / "models",
+            datasets_dir=tmp_path / "datasets",
+            outputs_dir=tmp_path / "outputs",
+            hf_cache_dir=tmp_path / "cache",
+        )
+    )
+    record = LocalModelRecord(
+        path=tmp_path / "models" / "qwen",
+        name="qwen",
+        kind="base",
+        format="safetensors",
+        architecture="Qwen2ForCausalLM",
+        parameter_count=500_000_000,
+        size_mb=950.0,
+        vram_status="ok",
+        status_detail="Estimate only",
+    )
+
+    class StubService:
+        def scan_local_models(self):
+            return [record]
+
+    state = AppState()
+    tab = ModelsTab(
+        state,
+        StorageService(settings),
+        model_service=StubService(),
+        scan_on_init=True,
+    )
+
+    assert wait_for(lambda: tab.library_table.rowCount() == 1)
+    assert tab.library_table.item(0, 0).text() == "qwen"
+    assert tab.library_table.item(0, 0).data(Qt.ItemDataRole.UserRole) == record
