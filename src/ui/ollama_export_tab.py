@@ -57,27 +57,41 @@ class OllamaExportTab(TabPage):
         self._add_path_row(grid, 0, "Hugging Face model", self.source_edit, self.source_button)
 
         self.python_edit = QLineEdit(card)
-        self.python_edit.setPlaceholderText("Python interpreter with llama.cpp conversion dependencies")
+        self.python_edit.setPlaceholderText(
+            "Python interpreter with llama.cpp conversion dependencies"
+        )
         self.python_button = QPushButton("Browse…", card)
-        self.python_button.clicked.connect(lambda: self._browse_file(self.python_edit, "Python executable (*.exe)"))
+        self.python_button.clicked.connect(
+            lambda: self._browse_file(self.python_edit, "Python executable (*.exe)")
+        )
         self._add_path_row(grid, 1, "Conversion Python", self.python_edit, self.python_button)
 
         self.converter_edit = QLineEdit(card)
-        self.converter_edit.setPlaceholderText("llama.cpp\convert_hf_to_gguf.py")
+        self.converter_edit.setPlaceholderText(r"llama.cpp\convert_hf_to_gguf.py")
         self.converter_button = QPushButton("Browse…", card)
-        self.converter_button.clicked.connect(lambda: self._browse_file(self.converter_edit, "Python scripts (*.py)"))
-        self._add_path_row(grid, 2, "llama.cpp converter", self.converter_edit, self.converter_button)
+        self.converter_button.clicked.connect(
+            lambda: self._browse_file(self.converter_edit, "Python scripts (*.py)")
+        )
+        self._add_path_row(
+            grid, 2, "llama.cpp converter", self.converter_edit, self.converter_button
+        )
 
         self.quantizer_edit = QLineEdit(card)
         self.quantizer_edit.setPlaceholderText("llama-quantize.exe")
         self.quantizer_button = QPushButton("Browse…", card)
-        self.quantizer_button.clicked.connect(lambda: self._browse_file(self.quantizer_edit, "Executable (*.exe)"))
-        self._add_path_row(grid, 3, "Quantizer executable", self.quantizer_edit, self.quantizer_button)
+        self.quantizer_button.clicked.connect(
+            lambda: self._browse_file(self.quantizer_edit, "Executable (*.exe)")
+        )
+        self._add_path_row(
+            grid, 3, "Quantizer executable", self.quantizer_edit, self.quantizer_button
+        )
 
         self.ollama_edit = QLineEdit(card)
         self.ollama_edit.setPlaceholderText("ollama.exe")
         self.ollama_button = QPushButton("Browse…", card)
-        self.ollama_button.clicked.connect(lambda: self._browse_file(self.ollama_edit, "Executable (*.exe)"))
+        self.ollama_button.clicked.connect(
+            lambda: self._browse_file(self.ollama_edit, "Executable (*.exe)")
+        )
         self._add_path_row(grid, 4, "Ollama executable", self.ollama_edit, self.ollama_button)
 
         self.output_edit = QLineEdit(card)
@@ -182,7 +196,9 @@ class OllamaExportTab(TabPage):
             self._fail("Select a valid llama-quantize executable, or choose F16.")
             return
         if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,63}", name):
-            self._fail("Ollama model name must be 2–64 lowercase letters, numbers, dots, underscores or hyphens.")
+            self._fail(
+                "Ollama model name must be 2–64 lowercase letters, numbers, dots, underscores or hyphens."
+            )
             return
         try:
             source_resolved = source.resolve()
@@ -212,8 +228,11 @@ class OllamaExportTab(TabPage):
             return
 
         self._stages = [
-            ("Convert HF to GGUF (F16)", str(python),
-             [str(converter), "--outfile", str(f16_path), "--outtype", "f16", str(source)]),
+            (
+                "Convert HF to GGUF (F16)",
+                str(python),
+                [str(converter), "--outfile", str(f16_path), "--outtype", "f16", str(source)],
+            ),
         ]
         if quant != "F16":
             self._stages.append(
@@ -221,7 +240,8 @@ class OllamaExportTab(TabPage):
             )
         else:
             self._stages[0] = (
-                "Convert HF to GGUF (F16)", str(python),
+                "Convert HF to GGUF (F16)",
+                str(python),
                 [str(converter), "--outfile", str(final_path), "--outtype", "f16", str(source)],
             )
         try:
@@ -229,10 +249,12 @@ class OllamaExportTab(TabPage):
         except OSError as error:
             self._fail(f"Could not write Ollama Modelfile: {error}")
             return
-        self._stages.extend([
-            ("Import into Ollama", str(ollama), ["create", name, "-f", str(modelfile)]),
-            ("Verify Ollama model", str(ollama), ["show", name]),
-        ])
+        self._stages.extend(
+            [
+                ("Import into Ollama", str(ollama), ["create", name, "-f", str(modelfile)]),
+                ("Verify Ollama model", str(ollama), ["show", name]),
+            ]
+        )
         self._stage_index = 0
         self._cancel_requested = False
         self.log.setText("")

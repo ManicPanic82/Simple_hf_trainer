@@ -6,7 +6,7 @@ import math
 import time
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPainter, QPen, QPalette
+from PySide6.QtGui import QPainter, QPalette, QPen
 from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
 
 
@@ -110,7 +110,8 @@ class ArchitectureView(QWidget):
 
     def set_architecture(self, metadata: dict) -> None:
         self.metadata = {
-            key: value for key, value in metadata.items()
+            key: value
+            for key, value in metadata.items()
             if isinstance(value, (str, int, float, bool)) or value is None
         }
         self.update()
@@ -129,8 +130,11 @@ class ArchitectureView(QWidget):
         accent = palette.color(QPalette.ColorRole.Highlight)
         if not self.metadata:
             painter.setPen(muted)
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                             "Architecture appears after the model loads")
+            painter.drawText(
+                self.rect(),
+                Qt.AlignmentFlag.AlignCenter,
+                "Architecture appears after the model loads",
+            )
             painter.end()
             return
         width = min(174, self.width() - 30)
@@ -175,12 +179,19 @@ class TrainingDashboard(QWidget):
         self.stats.setHorizontalSpacing(18)
         self.stats.setVerticalSpacing(6)
         self.stat_labels: dict[str, QLabel] = {}
-        for index, (key, title) in enumerate((
-            ("epoch", "Epoch"), ("learning_rate", "Learning rate"),
-            ("grad_norm", "Gradient norm"), ("tokens_per_second", "Tokens/sec"),
-            ("gpu_utilization", "GPU utilisation"), ("gpu_memory", "GPU memory"),
-            ("ram", "System RAM"), ("elapsed", "Elapsed"), ("remaining", "Est. remaining"),
-        )):
+        for index, (key, title) in enumerate(
+            (
+                ("epoch", "Epoch"),
+                ("learning_rate", "Learning rate"),
+                ("grad_norm", "Gradient norm"),
+                ("tokens_per_second", "Tokens/sec"),
+                ("gpu_utilization", "GPU utilisation"),
+                ("gpu_memory", "GPU memory"),
+                ("ram", "System RAM"),
+                ("elapsed", "Elapsed"),
+                ("remaining", "Est. remaining"),
+            )
+        ):
             label = QLabel(f"{title}: —", self)
             label.setObjectName("StripValue")
             self.stat_labels[key] = label
@@ -322,5 +333,5 @@ class TrainingDashboard(QWidget):
         used, total = snapshot.ram_used_bytes, snapshot.ram_total_bytes
         if used is not None and total:
             self.stat_labels["ram"].setText(
-                f"System RAM: {used / (1024 ** 3):.1f} / {total / (1024 ** 3):.1f} GB"
+                f"System RAM: {used / (1024**3):.1f} / {total / (1024**3):.1f} GB"
             )

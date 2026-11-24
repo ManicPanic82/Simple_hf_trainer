@@ -54,7 +54,10 @@ class AppState(QObject):
     def publish_metric(self, name: str, step: int, value: float, job_id: str | None = None) -> None:
         """Publish a genuine numeric metric from a worker and retain bounded history."""
         item: dict[str, object] = {
-            "name": str(name), "step": int(step), "value": float(value), "job_id": job_id
+            "name": str(name),
+            "step": int(step),
+            "value": float(value),
+            "job_id": job_id,
         }
         self.metric_history.append(item)
         del self.metric_history[:-10000]

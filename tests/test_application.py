@@ -19,9 +19,16 @@ def window(context):
     window.deleteLater()
 
 
-def test_main_window_has_exactly_four_tabs_in_order(window: MainWindow) -> None:
-    assert window.tabs.count() == 4
-    assert window.tab_names() == ["Models", "Datasets", "Training", "Heretic"]
+def test_main_window_has_exactly_six_tabs_in_order(window: MainWindow) -> None:
+    assert window.tabs.count() == 6
+    assert window.tab_names() == [
+        "Models",
+        "Datasets",
+        "Training",
+        "Analytics",
+        "Heretic",
+        "Ollama Export",
+    ]
 
 
 def test_tabs_are_navigable(window: MainWindow) -> None:
@@ -31,7 +38,7 @@ def test_tabs_are_navigable(window: MainWindow) -> None:
         assert window.tabs.tabText(index) == name
 
     window.tabs.setCurrentWidget(window.heretic_tab)
-    assert window.tabs.currentIndex() == 3
+    assert window.tabs.currentIndex() == 4
     window.tabs.setCurrentWidget(window.models_tab)
     assert window.tabs.currentIndex() == 0
 

@@ -9,7 +9,12 @@ def test_main_window_starts_with_exactly_six_workflow_tabs(context) -> None:
     window = MainWindow(context)
     try:
         assert window.tab_names() == [
-            "Models", "Datasets", "Training", "Analytics", "Heretic", "Ollama Export"
+            "Models",
+            "Datasets",
+            "Training",
+            "Analytics",
+            "Heretic",
+            "Ollama Export",
         ]
         assert window.tabs.count() == 6
         assert hasattr(window, "analytics_tab")

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.state import AppState
 from services.hardware_monitor import GpuStats, HardwareSnapshot
@@ -24,15 +24,19 @@ def test_analytics_receives_real_training_metrics(qapp, tmp_path: Path) -> None:
     state.publish_metric("grad_norm", 1, 0.6, "unsloth-1")
     state.publish_metric("tokens_per_second", 1, 42.0, "unsloth-1")
     state.publish_metric("eval_accuracy", 1, 0.91, "unsloth-1")
-    state.publish_datasets([
-        SimpleNamespace(row_count=1200, size_mb=4.5, is_prepared=True, format="jsonl"),
-        SimpleNamespace(row_count=800, size_mb=2.5, is_prepared=False, format="csv"),
-    ])
+    state.publish_datasets(
+        [
+            SimpleNamespace(row_count=1200, size_mb=4.5, is_prepared=True, format="jsonl"),
+            SimpleNamespace(row_count=800, size_mb=2.5, is_prepared=False, format="csv"),
+        ]
+    )
     state.publish_hardware(
         HardwareSnapshot(
             gpu=GpuStats(
-                name="Test GPU", utilization_percent=72,
-                memory_used_mb=4096, memory_total_mb=6144,
+                name="Test GPU",
+                utilization_percent=72,
+                memory_used_mb=4096,
+                memory_total_mb=6144,
             ),
             ram_used_bytes=8 * 1024**3,
             ram_total_bytes=32 * 1024**3,
@@ -83,6 +87,7 @@ def test_ollama_export_requires_hugging_face_model_directory(qapp, tmp_path: Pat
     assert tab.status_row.value.text() == "Failed"
     assert "config.json" in tab.log.text()
 
+
 def test_ollama_export_refuses_output_inside_source_model(qapp, tmp_path: Path) -> None:
     source = tmp_path / "merged-model"
     source.mkdir()
@@ -98,6 +103,8 @@ def test_ollama_export_refuses_output_inside_source_model(qapp, tmp_path: Path) 
     tab.python_edit.setText(str(python))
     tab.converter_edit.setText(str(converter))
     tab.ollama_edit.setText(str(ollama))
+    tab.name_edit.setText("test-model")
+    tab.quant_combo.setCurrentIndex(3)  # F16: no llama-quantize executable needed
     tab.output_edit.setText(str(source / "exports"))
     tab.start_export()
 

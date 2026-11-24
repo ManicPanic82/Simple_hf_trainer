@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPen, QPalette
-from PySide6.QtWidgets import QGridLayout, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtGui import QPainter, QPalette, QPen
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QLabel,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app.state import AppState
 from ui.tab_page import TabPage
@@ -37,9 +45,11 @@ class HistoryChart(QWidget):
         rect = self.rect().adjusted(42, 12, -12, -26)
         palette = self.palette()
         muted = palette.color(QPalette.ColorRole.PlaceholderText)
-        colors = (palette.color(QPalette.ColorRole.Highlight),
-                  palette.color(QPalette.ColorRole.Link),
-                  palette.color(QPalette.ColorRole.Text))
+        colors = (
+            palette.color(QPalette.ColorRole.Highlight),
+            palette.color(QPalette.ColorRole.Link),
+            palette.color(QPalette.ColorRole.Text),
+        )
         painter.setPen(QPen(muted, 1))
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
         painter.drawLine(rect.topLeft(), rect.bottomLeft())
@@ -97,7 +107,9 @@ class AnalyticsTab(TabPage):
         self.overview.setObjectName("StripValue")
         self.add(self.overview)
         self.latest_metrics: dict[str, float] = {}
-        self.run_stats = QLabel("Epoch: — · Loss: — · Eval loss: — · LR: — · Grad norm: — · Tokens/sec: —", self)
+        self.run_stats = QLabel(
+            "Epoch: — · Loss: — · Eval loss: — · LR: — · Grad norm: — · Tokens/sec: —", self
+        )
         self.run_stats.setObjectName("Muted")
         self.run_stats.setWordWrap(True)
         self.add(self.run_stats)
@@ -122,14 +134,16 @@ class AnalyticsTab(TabPage):
         self.evaluation_chart = HistoryChart(
             ("eval_accuracy", "eval_f1", "eval_precision", "eval_recall"), self
         )
-        for index, (title, chart) in enumerate((
-            ("Training and evaluation loss", self.loss_chart),
-            ("Learning-rate schedule", self.lr_chart),
-            ("Hardware utilisation", self.gpu_chart),
-            ("Gradient norm", self.gradient_chart),
-            ("Training throughput", self.throughput_chart),
-            ("Evaluation metrics", self.evaluation_chart),
-        )):
+        for index, (title, chart) in enumerate(
+            (
+                ("Training and evaluation loss", self.loss_chart),
+                ("Learning-rate schedule", self.lr_chart),
+                ("Hardware utilisation", self.gpu_chart),
+                ("Gradient norm", self.gradient_chart),
+                ("Training throughput", self.throughput_chart),
+                ("Evaluation metrics", self.evaluation_chart),
+            )
+        ):
             column = index % 2
             row = index // 2
             wrapper = QWidget(self)
@@ -147,7 +161,9 @@ class AnalyticsTab(TabPage):
         self.add(architecture_title)
         self.architecture = ArchitectureView(self)
         self.add(self.architecture)
-        self.architecture_details = QLabel("Architecture details appear after a model is loaded.", self)
+        self.architecture_details = QLabel(
+            "Architecture details appear after a model is loaded.", self
+        )
         self.architecture_details.setObjectName("Muted")
         self.architecture_details.setWordWrap(True)
         self.add(self.architecture_details)
@@ -188,7 +204,9 @@ class AnalyticsTab(TabPage):
         for record in records:
             label = str(record.format).upper()
             formats[label] = formats.get(label, 0) + 1
-        row_text = f"{total_rows:,} known rows" if total_rows is not None else "row counts unavailable"
+        row_text = (
+            f"{total_rows:,} known rows" if total_rows is not None else "row counts unavailable"
+        )
         format_text = ", ".join(f"{name}: {amount}" for name, amount in sorted(formats.items()))
         self.dataset_summary.setText(
             f"{count} local datasets · {row_text} · {total_size:.1f} MB · "
@@ -213,15 +231,21 @@ class AnalyticsTab(TabPage):
         value = float(item.get("value", 0.0))
         self.latest_metrics[name] = value
         stat_names = (
-            ("epoch", "Epoch"), ("loss", "Loss"), ("eval_loss", "Eval loss"),
-            ("learning_rate", "LR"), ("grad_norm", "Grad norm"),
+            ("epoch", "Epoch"),
+            ("loss", "Loss"),
+            ("eval_loss", "Eval loss"),
+            ("learning_rate", "LR"),
+            ("grad_norm", "Grad norm"),
             ("tokens_per_second", "Tokens/sec"),
         )
-        self.run_stats.setText(" · ".join(
-            f"{label}: {self.latest_metrics[key]:.4g}" if key in self.latest_metrics
-            else f"{label}: —"
-            for key, label in stat_names
-        ))
+        self.run_stats.setText(
+            " · ".join(
+                f"{label}: {self.latest_metrics[key]:.4g}"
+                if key in self.latest_metrics
+                else f"{label}: —"
+                for key, label in stat_names
+            )
+        )
         if name in self.loss_chart.points:
             self.loss_chart.add_point(name, step, value)
         elif name == "learning_rate":
@@ -233,8 +257,7 @@ class AnalyticsTab(TabPage):
         elif name in self.evaluation_chart.points:
             self.evaluation_chart.add_point(name, step, value)
         self.overview.setText(
-            f"Latest: step {step} · {name} {value:.5g} · "
-            f"job {item.get('job_id') or 'current'}"
+            f"Latest: step {step} · {name} {value:.5g} · job {item.get('job_id') or 'current'}"
         )
 
     def _on_hardware(self, snapshot) -> None:

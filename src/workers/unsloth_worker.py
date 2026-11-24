@@ -372,12 +372,15 @@ def run_worker(cfg: dict) -> int:
 
         print("[checkpoint] LoRA configured successfully", file=sys.stderr, flush=True)
         model_config = getattr(model, "config", None)
+
         def config_value(name):
             value = getattr(model_config, name, None)
             return value if isinstance(value, (str, int, float, bool)) else None
 
         peft_configs = getattr(model, "peft_config", {}) or {}
-        active_peft = next(iter(peft_configs.values()), None) if hasattr(peft_configs, "values") else None
+        active_peft = (
+            next(iter(peft_configs.values()), None) if hasattr(peft_configs, "values") else None
+        )
         target_modules = getattr(active_peft, "target_modules", None)
         if isinstance(target_modules, (set, tuple, list)):
             target_modules = ", ".join(sorted(str(item) for item in target_modules))

@@ -96,9 +96,7 @@ def test_training_worker_messages_feed_dedicated_analytics_tab(qapp, tmp_path: P
     )
     state = AppState()
     tab = TrainingTab(state, StorageService(settings))
-    analytics = AnalyticsTab(
-        state, JobManager(history_file=tmp_path / "jobs.json")
-    )
+    analytics = AnalyticsTab(state, JobManager(history_file=tmp_path / "jobs.json"))
     tab._on_worker_message(
         WorkerMessage(
             type=MessageType.ARCHITECTURE,

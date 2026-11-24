@@ -802,7 +802,7 @@ class TrainingTab(TabPage):
             completion = self._pending_completion
             if completion is not None and completion[0] and exit_code == 0:
                 self.progress_bar.setValue(100)
-    
+
             if snapshot is not None and snapshot.state.value == "cancelling":
                 failed_job = self._job_manager.handle_worker_exit(job_id, exit_code)
                 if failed_job is not None:
