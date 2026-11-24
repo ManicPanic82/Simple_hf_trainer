@@ -252,20 +252,21 @@ class ModelsTab(TabPage):
         self.library_table.setHorizontalHeaderLabels(
             ["Name", "Type", "Format", "Size", "6 GB VRAM"]
         )
-        self.library_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        self.library_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.library_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.library_table.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.library_table.horizontalHeader().setSectionResizeMode(
-            4, QHeaderView.ResizeMode.ResizeToContents
+        library_header = self.library_table.horizontalHeader()
+        # Keep the model identifier readable. The compatibility detail can be
+        # very long, so it must not drive the width of the other columns.
+        library_header.setMinimumSectionSize(64)
+        library_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        library_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        library_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        library_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        library_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.library_table.setColumnWidth(0, 320)
+        self.library_table.setColumnWidth(1, 80)
+        self.library_table.setColumnWidth(2, 100)
+        self.library_table.setColumnWidth(3, 100)
+        self.library_table.setHorizontalScrollMode(
+            self.library_table.ScrollMode.ScrollPerPixel
         )
         self.library_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.library_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -530,12 +531,15 @@ class ModelsTab(TabPage):
         self.library_table.setRowCount(len(records))
         for row, rec in enumerate(records):
             name_item = QTableWidgetItem(rec.name)
+            name_item.setToolTip(rec.name)
             name_item.setData(Qt.ItemDataRole.UserRole, rec)
             self.library_table.setItem(row, 0, name_item)
             self.library_table.setItem(row, 1, QTableWidgetItem(rec.kind.capitalize()))
             self.library_table.setItem(row, 2, QTableWidgetItem(rec.format.upper()))
             self.library_table.setItem(row, 3, QTableWidgetItem(f"{rec.size_mb:.1f} MB"))
-            self.library_table.setItem(row, 4, QTableWidgetItem(rec.status_detail))
+            compatibility_item = QTableWidgetItem(rec.status_detail)
+            compatibility_item.setToolTip(rec.status_detail)
+            self.library_table.setItem(row, 4, compatibility_item)
 
         self.library_pill.set_state("ok" if records else "off", f"{len(records)} models")
         if self._scan_publish:
