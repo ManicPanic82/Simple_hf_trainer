@@ -101,6 +101,7 @@ def test_scan_local_models(tmp_path: Path):
     a1 = outputs_dir / "adapter-job-1"
     a1.mkdir()
     (a1 / "adapter_config.json").write_text(json.dumps({"r": 4}), encoding="utf-8")
+    (a1 / "adapter_model.safetensors").write_bytes(b"adapter")
 
     settings = AppSettings(
         paths=PathSettings(
