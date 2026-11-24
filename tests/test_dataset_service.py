@@ -312,8 +312,8 @@ def test_prepare_dataset_preserves_existing_output_on_failure(tmp_path: Path):
 
 
 def test_prepare_dataset_rejects_empty_dataset(tmp_path: Path):
-    source = tmp_path / "training.jsonl"
-    source.write_text("\n  \n", encoding="utf-8")
+    source = tmp_path / "training.csv"
+    source.write_text("instruction,output\n", encoding="utf-8")
     destination = tmp_path / "prepared.jsonl"
     service = DatasetService(StorageService(AppSettings()))
 
