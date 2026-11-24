@@ -186,3 +186,35 @@ def test_directory_record_lists_only_real_data_files(qapp, tmp_path) -> None:
     assert names == sorted([train.name, test.name], key=str.lower)
     assert all(name in names for name in (train.name, test.name))
     assert "notes.txt" not in names
+
+
+def test_directory_record_discovers_nested_split_files_with_relative_labels(qapp, tmp_path) -> None:
+    data_dir = tmp_path / "datasets" / "nested-org--data"
+    train_dir = data_dir / "train"
+    validation_dir = data_dir / "validation"
+    train_dir.mkdir(parents=True)
+    validation_dir.mkdir(parents=True)
+    train = train_dir / "data.jsonl"
+    validation = validation_dir / "data.jsonl"
+    train.write_text('{"instruction":"train question","output":"train answer"}\n', encoding="utf-8")
+    validation.write_text(
+        '{"instruction":"validation question","output":"validation answer"}\n',
+        encoding="utf-8",
+    )
+
+    tab = _tab(
+        tmp_path,
+        _record(data_dir, name="nested-org--data", format="dir"),
+    )
+
+    entries = {
+        tab.split_combo.itemText(index): tab.split_combo.itemData(index)
+        for index in range(tab.split_combo.count())
+    }
+    assert entries == {
+        "train/data.jsonl": train,
+        "validation/data.jsonl": validation,
+    }
+    assert tab.split_combo.isEnabled() is True
+    assert tab._selected_split_path == train
+    tab._service.preview_dataset.assert_called_with(train, num_rows=100)
