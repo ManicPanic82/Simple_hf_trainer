@@ -1,4 +1,4 @@
-"""Unsloth LoRA fine-tuning worker speaking the Simple HF Trainer JSON-lines protocol.
+"""Unsloth full fine-tuning and LoRA/QLoRA worker using the JSON-lines protocol.
 
 This script runs in the isolated Unsloth environment. It communicates exclusively
 over stdout using UTF-8 JSON-lines according to protocol version 1.
