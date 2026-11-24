@@ -321,3 +321,21 @@ def test_prepare_dataset_rejects_empty_dataset(tmp_path: Path):
         service.prepare_dataset(source, output_path=destination)
 
     assert not destination.exists()
+
+
+def test_preview_dataset_reports_malformed_jsonl_with_line_number(tmp_path: Path):
+    source = tmp_path / "broken.jsonl"
+    source.write_text("{invalid json}\n", encoding="utf-8")
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="Invalid JSONL record at line 1"):
+        service.preview_dataset(source)
+
+
+def test_preview_dataset_rejects_non_object_jsonl_records(tmp_path: Path):
+    source = tmp_path / "not_objects.jsonl"
+    source.write_text('["not", "an", "object"]\n', encoding="utf-8")
+    service = DatasetService(StorageService(AppSettings()))
+
+    with pytest.raises(ValueError, match="line 1.*must be an object"):
+        service.preview_dataset(source)
