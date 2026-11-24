@@ -137,7 +137,7 @@ def test_training_uses_a_snapshot_and_records_original_dataset_path(tmp_path: Pa
 
 def test_full_finetuning_package_is_identified_as_standalone_model(tmp_path: Path) -> None:
     dataset = tmp_path / "train.jsonl"
-    dataset.write_text('{"text":"example"}\\n', encoding="utf-8")
+    dataset.write_text('{"text":"example"}\n', encoding="utf-8")
     output = tmp_path / "full-model-package"
     output.mkdir()
 
