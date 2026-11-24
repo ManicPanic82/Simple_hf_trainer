@@ -295,8 +295,7 @@ def test_prepare_dataset_rejects_empty_instruction_or_output(tmp_path: Path):
 def test_prepare_dataset_preserves_existing_output_on_failure(tmp_path: Path):
     source = tmp_path / "training.jsonl"
     source.write_text(
-        '{"instruction":"Question","output":"Answer"}\n'
-        '{invalid json}\n',
+        '{"instruction":"Question","output":"Answer"}\n{invalid json}\n',
         encoding="utf-8",
     )
     destination = tmp_path / "prepared.jsonl"
