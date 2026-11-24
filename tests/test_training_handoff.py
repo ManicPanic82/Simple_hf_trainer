@@ -11,7 +11,10 @@ from services.hardware_monitor import GpuStats, HardwareSnapshot
 from ui.training_tab import TrainingTab
 from workers.job_manager import JobState
 from workers.protocol import MessageType, WorkerMessage
-from workers.unsloth_worker import estimate_causal_lm_parameters, estimate_full_finetune_vram_bytes
+from workers.unsloth_worker import (
+    estimate_causal_lm_parameters,
+    estimate_full_finetune_vram_bytes,
+)
 
 
 def _make_tab(
@@ -184,6 +187,7 @@ def test_export_combo_feeds_config(qapp, tmp_path: Path) -> None:
     full_cfg = tab._build_config("job-full", "a-model", str(dataset))
     assert full_cfg["training_method"] == "full_finetune"
     assert full_cfg["export_strategy"] == "full_model"
+    assert full_cfg["save_strategy"] == "epoch"
     assert full_cfg["output_model_name"] == "My-Custom-Qwen"
     assert Path(full_cfg["output_dir"]).name == "My-Custom-Qwen"
 
