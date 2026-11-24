@@ -123,6 +123,12 @@ def inspect_model_directory(directory: Path) -> LocalModelRecord | None:
     gguf_files = list(directory.glob("*.gguf"))
     safetensor_files = list(directory.glob("*.safetensors"))
     bin_files = list(directory.glob("*.bin"))
+    other_weight_files = [
+        *directory.glob("*.pt"),
+        *directory.glob("*.pth"),
+        *directory.glob("*.h5"),
+        *directory.glob("*.msgpack"),
+    ]
 
     total_bytes = 0
     package_metadata_files = {
@@ -148,6 +154,12 @@ def inspect_model_directory(directory: Path) -> LocalModelRecord | None:
 
     # 1. Check if it's a LoRA adapter
     if adapter_config_path.is_file():
+        adapter_weights = [
+            *directory.glob("adapter_model.safetensors"),
+            *directory.glob("adapter_model.bin"),
+        ]
+        if not adapter_weights:
+            return None
         arch = "LoRA Adapter"
         try:
             with open(adapter_config_path, encoding="utf-8") as f:
@@ -174,6 +186,8 @@ def inspect_model_directory(directory: Path) -> LocalModelRecord | None:
 
     # 2. Check if it's a full model with config.json
     if config_path.is_file():
+        if not (safetensor_files or bin_files or other_weight_files or gguf_files):
+            return None
         arch = "Unknown"
         model_type = ""
         param_count: int | None = None
@@ -207,7 +221,15 @@ def inspect_model_directory(directory: Path) -> LocalModelRecord | None:
         except Exception:
             pass
 
-        fmt = "safetensors" if safetensor_files else ("pytorch" if bin_files else "unknown")
+        fmt = (
+            "gguf"
+            if gguf_files
+            else "safetensors"
+            if safetensor_files
+            else "pytorch"
+            if bin_files or other_weight_files
+            else "unknown"
+        )
         vram_status, detail = estimate_vram_compatibility(param_count, size_mb, fmt)
         return LocalModelRecord(
             path=directory,
@@ -418,8 +440,12 @@ class ModelService:
             logger.error("Failed to list files for %s: %s", repo_id, error)
             raise
 
+        if not files:
+            raise ValueError(f"Hugging Face repository {repo_id} contains no files to download.")
+
         total = len(files)
         emit(0.0, f"Downloading {total} files for {repo_id}...")
+        destination.mkdir(parents=True, exist_ok=True)
         for index, filename in enumerate(files, start=1):
             completed = index - 1
             fraction = completed / total if total else 0.0
@@ -440,6 +466,25 @@ class ModelService:
                 token=token,
             )
             emit(index / total if total else 0.0, f"Downloaded file {index}/{total}: {filename}")
+
+        has_model_weights = any(
+            Path(filename).suffix.lower()
+            in {".safetensors", ".bin", ".pt", ".pth", ".gguf", ".h5", ".msgpack"}
+            for filename in files
+        )
+        has_adapter_config = "adapter_config.json" in files
+        has_model_config = "config.json" in files
+        has_adapter_weights = any(
+            Path(filename).name in {"adapter_model.safetensors", "adapter_model.bin"}
+            for filename in files
+        )
+        is_loadable_model = has_model_config and has_model_weights
+        is_loadable_adapter = has_adapter_config and has_adapter_weights
+        if not (is_loadable_model or is_loadable_adapter):
+            raise ValueError(
+                f"Downloaded repository {repo_id} does not contain a recognised model "
+                "configuration and weight file. Check that this is a model or LoRA adapter repository."
+            )
 
         emit(1.0, f"Downloaded {repo_id} to {destination}")
         return destination
