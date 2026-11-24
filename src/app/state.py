@@ -32,6 +32,7 @@ class AppState(QObject):
     models_changed = Signal(object)  # list[LocalModelRecord]
     datasets_changed = Signal(object)  # list[LocalDatasetRecord]
     metric_changed = Signal(object)  # dict[str, object]
+    architecture_changed = Signal(object)  # dict[str, object]
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -41,6 +42,7 @@ class AppState(QObject):
         self.models: list[object] = []
         self.datasets: list[object] = []
         self.metric_history: list[dict[str, object]] = []
+        self.architecture: dict[str, object] = {}
         self.hardware_history: list[HardwareSnapshot] = []
 
     def publish_hardware(self, snapshot: HardwareSnapshot) -> None:
@@ -57,6 +59,11 @@ class AppState(QObject):
         self.metric_history.append(item)
         del self.metric_history[:-10000]
         self.metric_changed.emit(item)
+
+    def publish_architecture(self, metadata: dict[str, object]) -> None:
+        """Publish architecture metadata reported by the loaded training model."""
+        self.architecture = dict(metadata)
+        self.architecture_changed.emit(self.architecture)
 
     def publish_engines(self, statuses: dict[str, object]) -> None:
         self.engines = statuses
