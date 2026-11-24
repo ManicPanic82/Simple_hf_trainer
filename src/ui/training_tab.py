@@ -62,6 +62,7 @@ class TrainingTab(TabPage):
         self._pending_completion: tuple[bool, str] | None = None
         self._queued_jobs: dict[str, dict] = {}
         self._queue_connected = False
+        self._active_training_method = "full_finetune"
 
         # --- Engine Status Card ---
         self.engine_card = EngineCard(
@@ -262,6 +263,11 @@ class TrainingTab(TabPage):
         self.lr_scheduler_combo.addItem("Constant", "constant")
         self.lr_scheduler_combo.addItem("Constant with warmup", "constant_with_warmup")
         grid.addWidget(self.lr_scheduler_combo, 16, 1, 1, 3)
+
+        grid.addWidget(QLabel("Resume Checkpoint (optional):", cfg_card), 17, 0)
+        self.resume_checkpoint_edit = QLineEdit(cfg_card)
+        self.resume_checkpoint_edit.setPlaceholderText("Path to an existing Trainer checkpoint folder")
+        grid.addWidget(self.resume_checkpoint_edit, 17, 1, 1, 3)
 
         cfg_card.add_layout(grid)
         self._update_training_method_state()
@@ -596,6 +602,19 @@ class TrainingTab(TabPage):
         if not 0 < learning_rate < 1:
             self._state.notify("error", "Learning rate must be greater than 0 and less than 1.")
             return
+        try:
+            weight_decay = float(self.weight_decay_edit.text().strip())
+            max_grad_norm = float(self.max_grad_norm_edit.text().strip())
+        except ValueError:
+            self._state.notify("error", "Weight decay and max gradient norm must be valid numbers.")
+            return
+        if weight_decay < 0 or max_grad_norm < 0:
+            self._state.notify("error", "Weight decay and max gradient norm cannot be negative.")
+            return
+        resume_checkpoint = self.resume_checkpoint_edit.text().strip()
+        if resume_checkpoint and not Path(resume_checkpoint).is_dir():
+            self._state.notify("error", "The resume checkpoint path must be an existing folder.")
+            return
         output_safety_error = self._validate_training_output_root(str(model_name))
         if output_safety_error:
             self._state.notify("error", output_safety_error)
@@ -682,6 +701,7 @@ class TrainingTab(TabPage):
             "weight_decay": float(self.weight_decay_edit.text().strip() or "0"),
             "max_grad_norm": float(self.max_grad_norm_edit.text().strip() or "1"),
             "lr_scheduler_type": self.lr_scheduler_combo.currentData() or "cosine",
+            "resume_from_checkpoint": self.resume_checkpoint_edit.text().strip() or None,
             "learning_rate": lr_val,
             "lora_r": self.r_spin.value(),
             "lora_alpha": self.alpha_spin.value(),
@@ -716,6 +736,7 @@ class TrainingTab(TabPage):
     def _launch_job(self, job_id: str, config_data: dict, interpreter, worker_script) -> None:
         try:
             self._active_job_id = job_id
+            self._active_training_method = str(config_data.get("training_method", "full_finetune"))
             self._pending_completion = None
             self.start_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
@@ -895,7 +916,12 @@ class TrainingTab(TabPage):
                 self._job_manager.mark_succeeded(job_id, message=completion[1])
                 self.console.append(f"[worker exit] {completion[1]}")
                 self._state.publish_models(self._model_service.scan_local_models())
-                self._state.notify("info", "LoRA fine-tuning completed successfully!")
+                method_label = {
+                    "full_finetune": "Full fine-tuning",
+                    "lora": "LoRA fine-tuning",
+                    "qlora": "QLoRA fine-tuning",
+                }.get(self._active_training_method, "Fine-tuning")
+                self._state.notify("info", f"{method_label} completed successfully!")
 
             elif completion is not None:
                 failed_job = self._job_manager.mark_failed(
